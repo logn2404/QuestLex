@@ -8,12 +8,39 @@ from vocab_extractor import VocabularyExtractor
 from revision_engine import RevisionEngine
 from flashcard_cli import run_flashcard_session, clear_screen
 
+LEVEL_OPTIONS = {
+    "1": {"label": "Beginner", "cefr": "A1"},
+    "2": {"label": "Amateur", "cefr": "B2"},
+    "3": {"label": "Expert", "cefr": "C1"},
+}
+
+
+def choose_user_level() -> str:
+    """Prompt once at startup so the user can pick the desired CEFR target band."""
+    while True:
+        clear_screen()
+        print("==========================================")
+        print("      🎯 CHỌN MỨC ĐỘ TỪ VỰNG")
+        print("==========================================")
+        print("  [1] 👶 Beginner  -> A1")
+        print("  [2] 🧑‍🎓 Amateur   -> B2")
+        print("  [3] 🧠 Expert    -> C1")
+        print("==========================================")
+
+        choice = input("\n👉 Chọn mức độ của bạn (1-3): ").strip()
+        if choice in LEVEL_OPTIONS:
+            selected = LEVEL_OPTIONS[choice]
+            print(f"\n✅ Đã chọn: {selected['label']} ({selected['cefr']})")
+            input("\n👉 Nhấn [Enter] để tiếp tục...")
+            return selected["cefr"]
+
+        input("⚠️ Lựa chọn không hợp lệ. Nhấn [Enter] để thử lại...")
+
+
 def create_sample_screenshot(filename: str = "sample_screenshot.png") -> str:
     """Tạo một bức ảnh chứa văn bản tiếng Anh mẫu để test OCR."""
     text = (
-        "Artificial intelligence relies heavily on complex algorithms to process data. "
-        "Building a resilient system requires an understanding of ubiquitous network protocols. "
-        "Engineers must continuously analyze potential vulnerabilities and optimize performance."
+        "Many students try to improve their daily habits to achieve better results in their academic life. It is important to create a clear schedule and follow it consistently. However, modern distractions often impede deep focus and mitigate long-term productivity. To overcome this, learners must cultivate strong mental discipline and avoid procrastination when studying complex subjects."
     )
     img = Image.new('RGB', (950, 200), color=(245, 247, 250))
     d = ImageDraw.Draw(img)
@@ -23,12 +50,15 @@ def create_sample_screenshot(filename: str = "sample_screenshot.png") -> str:
 
 def main():
     USER_ID = "user_dev_01"
-    
+
     print("⏳ Đang khởi động AI Models (EasyOCR & KeyBERT) lên GPU... Vui lòng đợi trong giây lát...")
     ocr_engine = OCRExtractor(languages=['en'], gpu=True)
     vocab_engine = VocabularyExtractor(spacy_model="en_core_web_sm")
     db = RevisionEngine("vocab_app.db")
-    
+    selected_level = db.get_user_level(USER_ID)
+    if selected_level is None:
+        selected_level = choose_user_level()
+        db.save_user_level(USER_ID, selected_level)
     while True:
         clear_screen()
         print("==========================================")
@@ -36,10 +66,11 @@ def main():
         print("==========================================")
         print("  [1] 📸 Quét ảnh chụp màn hình (Ảnh mẫu)")
         print("  [2] 🧠 Ôn tập Flashcard (Spaced Repetition)")
-        print("  [3] ❌ Thoát ứng dụng")
+        print("  [3] 📚 Xem toàn bộ lịch sử từ vựng")
+        print("  [4] ❌ Thoát ứng dụng")
         print("==========================================")
         
-        choice = input("\n👉 Nhập lựa chọn của bạn (1-3): ")
+        choice = input("\n👉 Nhập lựa chọn của bạn (1-4): ")
         
         if choice == '1':
             clear_screen()
@@ -49,17 +80,20 @@ def main():
             # create_sample_screenshot(image_path)
             
             # 1. OCR trích xuất text từ ảnh
+            # extracted_text = "Many students try to improve their daily habits to achieve better results in their academic life. It is important to create a clear schedule and follow it consistently. However, modern distractions often impede deep focus and mitigate long-term productivity. To overcome this, learners must cultivate strong mental discipline and avoid procrastination when studying complex subjects."
             extracted_text, conf = ocr_engine.extract_text_from_image(image_path, use_preprocessing=False)
             print(f"📄 Văn bản OCR đọc được: \"{extracted_text}\"\n")
             
             # 2. Lấy lịch sử user để thuật toán chấm điểm ưu tiên
             user_profile = db.get_user_history_for_extractor(USER_ID)
             
-            # 3. Phân tích và lấy Top 3 từ quan trọng nhất kèm Định nghĩa + Ví dụ
+            # 3. Phân tích và lấy tất cả từ phù hợp với mức độ người dùng
             top_vocab = vocab_engine.process_text(
-                text=extracted_text, 
-                user_history=user_profile, 
-                top_k=3 
+                text=extracted_text,
+                user_history=user_profile,
+                top_k=None,
+                score_threshold=0.45,
+                level=selected_level
             )
             
             print("✅ ĐÃ TÌM THẤY & TRA TỪ ĐIỂN XONG:")
@@ -91,6 +125,25 @@ def main():
             
         elif choice == '3':
             clear_screen()
+            history = db.get_all_user_history(USER_ID)
+            if not history:
+                print("📚 Bạn chưa có từ vựng nào trong lịch sử.")
+                input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
+                continue
+
+            print("📚 TOÀN BỘ LỊCH SỬ TỪ VỰNG CỦA BẠN")
+            print("-" * 60)
+            for index, item in enumerate(history, start=1):
+                print(f"{index}. {item['word'].upper()} ({item['pos']})")
+                print(f"   Nghĩa: {item['definition']}")
+                print(f"   Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
+                print(f"   Ví dụ: \"{item['context_example']}\"\n")
+
+            print("-" * 60)
+            input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
+
+        elif choice == '4':
+            clear_screen()
             print("👋 Hẹn gặp lại bạn lần sau!")
             break
             
@@ -105,3 +158,4 @@ if __name__ == "__main__":
         print("\n❌ CHƯƠNG TRÌNH GẶP LỖI:")
         traceback.print_exc()
         input("\nNhấn Enter để thoát...")
+        

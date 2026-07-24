@@ -37,7 +37,41 @@ class RevisionEngine:
                     PRIMARY KEY (user_id, word)
                 )
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    user_id TEXT PRIMARY KEY,
+                    level TEXT,
+                    updated_at TIMESTAMP
+                )
+            """)
             conn.commit()
+
+    def save_user_level(self, user_id: str, level: str) -> None:
+        """Persist the user's selected proficiency level for reuse on later runs."""
+        now = datetime.now()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO user_settings (user_id, level, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id)
+                DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at
+                """,
+                (user_id, level.upper(), now)
+            )
+            conn.commit()
+
+    def get_user_level(self, user_id: str) -> Optional[str]:
+        """Return the saved proficiency level for the user if one exists."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT level FROM user_settings WHERE user_id = ?",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
 
     # ==========================================
     # 1. THÊM TỪ MỚI VÀO SỔ TỪ VỰNG CỦA USER
@@ -140,6 +174,36 @@ class RevisionEngine:
                     "context_example": r[4],
                     "mastery": r[5], 
                     "interval_days": r[6]
+                }
+                for r in rows
+            ]
+
+    def get_all_user_history(self, user_id: str) -> List[Dict[str, Any]]:
+        """Return the complete saved vocabulary history for a user, ordered by creation time."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT word, pos, definition, synonyms, context_example, mastery_score, interval_days, repetition_count, next_review_date, created_at
+                FROM user_vocabulary
+                WHERE user_id = ?
+                ORDER BY created_at DESC, word ASC
+                """,
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            return [
+                {
+                    "word": r[0],
+                    "pos": r[1],
+                    "definition": r[2],
+                    "synonyms": json.loads(r[3]) if r[3] else [],
+                    "context_example": r[4],
+                    "mastery": r[5],
+                    "interval_days": r[6],
+                    "repetition_count": r[7],
+                    "next_review_date": r[8],
+                    "created_at": r[9]
                 }
                 for r in rows
             ]
