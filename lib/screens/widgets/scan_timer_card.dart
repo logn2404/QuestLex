@@ -15,7 +15,7 @@ class ScanTimerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Colors.deepPurple.shade900.withOpacity(0.5),
+      color: Colors.deepPurple.shade900.withValues(alpha: 0.5),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
@@ -43,7 +43,7 @@ class ScanTimerCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Thời gian Game Scan', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                    const Text('Thời gian Scan', style: TextStyle(fontSize: 14, color: Colors.grey)),
                     const SizedBox(height: 4),
                     Text(
                       formattedTime,

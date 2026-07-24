@@ -15,18 +15,3 @@ class DashboardStats {
     required this.streakDays,
   });
 }
-
-// Repository giả lập dữ liệu cho DashboardStats
-
-class VocabRepository {
-  DashboardStats getDashboardStats() {
-    return const DashboardStats(
-      totalVocab: 1250,
-      addedVocab: 320,
-      learningVocab: 1250,
-      masterChange: -20,
-      pendingVocab: 32,
-      streakDays: 5, // Ví dụ 5 ngày streak
-    );
-  }
-}

@@ -1,117 +1,101 @@
 import 'package:flutter/material.dart';
-import '../services/game_timer_service.dart';
-import '../repositories/vocab_repositories.dart';
-import 'widgets/scan_timer_card.dart';
-import 'widgets/ai_scan_toggle_card.dart';
-import 'widgets/dashboard_action_card.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+import '../../../screens/widgets/ai_scan_toggle_card.dart';
+import '../../../screens/widgets/dashboard_action_card.dart';
+import '../../../screens/widgets/scan_timer_card.dart';
+import 'home_controller.dart';
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  bool _isScanningActive = false;
-  late final GameTimerService _timerService;
-  late final VocabRepository _vocabRepository;
+class _HomePageState extends State<HomePage> {
+  late final HomeController _controller;
 
   @override
   void initState() {
     super.initState();
-    _vocabRepository = VocabRepository();
-    _timerService = GameTimerService(
-      onTick: () => setState(() {}),
-    );
+    _controller = HomeController();
+    _controller.addListener(_handleControllerChange);
+  }
+
+  void _handleControllerChange() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<bool> _showPrivacyWarningDialog(BuildContext context) async {
-  return await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: const Row(
-              children: [
-                Icon(Icons.privacy_tip_outlined, color: Colors.amber, size: 28),
-                SizedBox(width: 10),
-                Text('Cảnh báo quyền riêng tư', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              ],
-            ),
-            content: const Text(
-              'Chương trình sẽ bắt đầu chụp và phân tích mọi hoạt động trên màn hình máy tính của bạn để hỗ trợ quét từ vựng.',
-              style: TextStyle(fontSize: 14, height: 1.4),
-            ),
-            // Đã xóa actionsAlignment để 2 nút tự động dồn về sát mép phải
-            actions: [
-              // Nút Khoan đã (Đứng trước)
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop(false);
-                },
-                child: const Text('Khoan đã', style: TextStyle(color: Colors.grey)),
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-              const SizedBox(width: 8), // Khoảng cách nhỏ giữa 2 nút
-              // Nút Đồng ý (Đứng sau)
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              title: const Row(
+                children: [
+                  Icon(Icons.privacy_tip_outlined, color: Colors.amber, size: 28),
+                  SizedBox(width: 10),
+                  Text(
+                    'Cảnh báo quyền riêng tư',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                   ),
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop(true);
-                },
-                child: const Text('Đồng ý'),
+                ],
               ),
-            ],
-          );
-        },
-      ) ??
-      false;
-}
-
-  void _onToggleScanning(bool value) async {
-  if (value) {
-    // Nếu người dùng muốn BẬT: Hiện dialog cảnh báo trước
-    bool confirmed = await _showPrivacyWarningDialog(context);
-
-    if (confirmed) {
-      // Người dùng bấm "Đồng ý" -> Cho phép bật và chạy Timer
-      setState(() {
-        _isScanningActive = true;
-      });
-      _timerService.start();
-    } else {
-      // Người dùng bấm "Khoan đã" -> Giữ nguyên trạng thái Tắt
-      setState(() {
-        _isScanningActive = false;
-      });
-    }
-  } else {
-    // Nếu người dùng TẮT AI Scan: Tắt trực tiếp không cần hỏi
-    setState(() {
-      _isScanningActive = false;
-    });
-    _timerService.stop();
+              content: const Text(
+                'Chương trình sẽ bắt đầu chụp và phân tích mọi hoạt động trên màn hình máy tính của bạn để hỗ trợ quét từ vựng.',
+                style: TextStyle(fontSize: 14, height: 1.4),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(false);
+                  },
+                  child: const Text('Khoan đã', style: TextStyle(color: Colors.grey)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop(true);
+                  },
+                  child: const Text('Đồng ý'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
   }
-}
+
+  Future<void> _onToggleScanning(bool value) async {
+    await _controller.toggleScan(
+      value,
+      confirmScan: () => _showPrivacyWarningDialog(context),
+    );
+  }
 
   @override
   void dispose() {
-    _timerService.dispose();
+    _controller.removeListener(_handleControllerChange);
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final stats = _vocabRepository.getDashboardStats();
+    final stats = _controller.stats;
 
     return Scaffold(
       appBar: AppBar(
@@ -123,23 +107,19 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // --- 1. TOGGLE AI TIMER & GAME SCAN (GIỮ NGUYÊN) ---
             ScanTimerCard(
-              isScanningActive: _isScanningActive,
-              formattedTime: _timerService.formattedTime,
-              isExceeding3Hours: _timerService.isExceeding3Hours,
+              isScanningActive: _controller.isScanningActive,
+              formattedTime: _controller.formattedTime,
+              isExceeding3Hours: _controller.isExceeding3Hours,
             ),
             const SizedBox(height: 12),
             AiScanToggleCard(
-              isScanningActive: _isScanningActive,
+              isScanningActive: _controller.isScanningActive,
               onChanged: _onToggleScanning,
             ),
             const SizedBox(height: 24),
-
-            // --- 2. 4 WIDGET THEO BẢN DRAFT MỚI (GRID 2x2 HOẶC HÀNG NGANG) ---
             LayoutBuilder(
               builder: (context, constraints) {
-                // Tự động chỉnh 2 cột nếu trên Mobile/Web nhỏ, hoặc 4 cột trên Web rộng
                 int crossAxisCount = constraints.maxWidth > 650 ? 4 : 2;
 
                 return GridView.count(
@@ -150,13 +130,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisSpacing: 12,
                   childAspectRatio: 1.1,
                   children: [
-                    // Ô 1: KHO TỪ VỰNG
                     DashboardActionCard(
                       title: 'KHO TỪ VỰNG',
                       icon: Icons.menu_book_rounded,
-                      onTap: () {
-                        // Chuyển sang màn kho từ vựng
-                      },
+                      onTap: () {},
                       subContent: RichText(
                         textAlign: TextAlign.center,
                         text: TextSpan(
@@ -165,21 +142,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             TextSpan(text: '${stats.totalVocab}('),
                             TextSpan(
                               text: '+${stats.addedVocab}',
-                              style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             const TextSpan(text: ') từ'),
                           ],
                         ),
                       ),
                     ),
-
-                    // Ô 2: TỪ VỰNG ĐANG HỌC
                     DashboardActionCard(
                       title: 'TỪ VỰNG ĐANG HỌC',
                       icon: Icons.edit_note_rounded,
-                      onTap: () {
-                        // Chuyển sang màn từ vựng đang học
-                      },
+                      onTap: () {},
                       subContent: RichText(
                         textAlign: TextAlign.center,
                         text: TextSpan(
@@ -195,22 +171,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-
-                    // Ô 3: BẮT ĐẦU HỌC
                     DashboardActionCard(
                       title: 'BẮT ĐẦU HỌC',
                       icon: Icons.play_circle_fill_rounded,
-                      onTap: () {
-                        // Bắt đầu vào bài học
-                      },
+                      onTap: () {},
                       subContent: Text(
                         '${stats.pendingVocab} từ đang chờ',
                         style: const TextStyle(color: Colors.grey, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
                     ),
-
-                    // Ô 4: STREAK
                     DashboardActionCard(
                       title: 'STREAK',
                       icon: Icons.local_fire_department_rounded,

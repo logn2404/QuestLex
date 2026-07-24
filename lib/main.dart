@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart';
+import 'features/home/presentation/home_page.dart';
 
 void main() {
   runApp(const QuestLexApp());
@@ -20,7 +20,7 @@ class QuestLexApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const HomeScreen(),
+      home: const HomePage(),
     );
   }
 }

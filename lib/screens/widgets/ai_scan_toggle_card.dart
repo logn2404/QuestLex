@@ -22,7 +22,7 @@ class AiScanToggleCard extends StatelessWidget {
           style: TextStyle(color: isScanningActive ? Colors.greenAccent : Colors.grey),
         ),
         value: isScanningActive,
-        activeColor: Colors.greenAccent,
+        activeThumbColor: Colors.greenAccent,
         onChanged: onChanged,
         secondary: const Icon(Icons.psychology_outlined, size: 30),
       ),
