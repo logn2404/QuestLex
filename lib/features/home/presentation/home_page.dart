@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../screens/widgets/ai_scan_toggle_card.dart';
 import '../../../screens/widgets/dashboard_action_card.dart';
 import '../../../screens/widgets/scan_timer_card.dart';
+import '../../../services/game_timer_service.dart';
+import '../data/repositories/fake_dashboard_repository.dart';
 import 'home_controller.dart';
 
 class HomePage extends StatefulWidget {
@@ -18,7 +20,16 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _controller = HomeController();
+    _controller = HomeController(
+      repository: FakeDashboardRepository(),
+      timerService: GameTimerService(
+        onTick: () {
+          if (mounted) {
+            _handleControllerChange();
+          }
+        },
+      ),
+    );
     _controller.addListener(_handleControllerChange);
   }
 
@@ -79,12 +90,27 @@ class _HomePageState extends State<HomePage> {
         false;
   }
 
-  Future<void> _onToggleScanning(bool value) async {
-    await _controller.toggleScan(
-      value,
-      confirmScan: () => _showPrivacyWarningDialog(context),
-    );
+  /// Xử lý sự kiện gạt công tắc AI Scan (Đã thêm tham số controller)
+void _onToggleScanning(
+  bool value, 
+  BuildContext context, 
+  HomeController controller, // 👈 Thêm controller vào đây
+) async {
+  if (value) {
+    bool confirmed = await _showPrivacyWarningDialog(context);
+
+    // Kiểm tra context.mounted để hết sạch warning cũ
+    if (!context.mounted) return;
+
+    if (confirmed) {
+      controller.toggleScanning(true, context);
+    } else {
+      controller.toggleScanning(false, context);
+    }
+  } else {
+    controller.toggleScanning(false, context);
   }
+}
 
   @override
   void dispose() {
@@ -96,6 +122,17 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final stats = _controller.stats;
+    
+    if (stats == null || _controller.isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('QuestLex Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+          centerTitle: true,
+          elevation: 2,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -115,7 +152,8 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 12),
             AiScanToggleCard(
               isScanningActive: _controller.isScanningActive,
-              onChanged: _onToggleScanning,
+              // ✅ Dùng anonymous function để nhận giá trị bool (value) và truyền đủ context, controller
+            onChanged: (value) => _onToggleScanning(value, context, this._controller),
             ),
             const SizedBox(height: 24),
             LayoutBuilder(

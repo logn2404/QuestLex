@@ -14,17 +14,51 @@ class AiScanToggleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: SwitchListTile(
-        title: const Text('Sử dụng AI quét (ONNX)', style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-          isScanningActive ? 'Đang chạy ngầm để phát hiện từ vựng...' : 'Tắt quét AI',
-          style: TextStyle(color: isScanningActive ? Colors.greenAccent : Colors.grey),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.document_scanner_rounded,
+                  color: isScanningActive ? Colors.deepPurpleAccent : Colors.grey,
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Tự động AI quét (ONNX)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isScanningActive ? 'Đang chạy quét AI ngầm...' : 'Tắt quét AI',
+                      style: TextStyle(
+                        color: isScanningActive ? Colors.greenAccent : Colors.grey,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            Switch(
+              value: isScanningActive,
+              activeColor: Colors.deepPurpleAccent,
+              onChanged: onChanged,
+            ),
+          ],
         ),
-        value: isScanningActive,
-        activeThumbColor: Colors.greenAccent,
-        onChanged: onChanged,
-        secondary: const Icon(Icons.psychology_outlined, size: 30),
       ),
     );
   }
