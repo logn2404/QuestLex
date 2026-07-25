@@ -52,13 +52,17 @@ except LookupError:
     nltk.download('omw-1.4', quiet=True)
 
 from nltk.corpus import wordnet
+from offline_dictionary import LargeOfflineDictionary
+from nltk_example_extractor import NLTKExampleExtractor
 
 class VocabularyExtractor:
     def __init__(self, spacy_model: str = "en_core_web_sm"):
         print("Loading spaCy model...")
         self.nlp = spacy.load(spacy_model)
         self._dictionary_cache: Dict[str, Dict[str, Any]] = {}
-        
+        self.dict_engine = LargeOfflineDictionary()
+        self.nltk_example_engine = NLTKExampleExtractor(min_words=6, max_words=16)
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Loading KeyBERT model on device: {device}...")
         self.kw_model = KeyBERT(model="all-MiniLM-L6-v2")
@@ -142,16 +146,23 @@ class VocabularyExtractor:
         return overlap < 1
 
     def build_example_sentence(self, word: str, context: str = "", pos: str = "") -> str:
-        """Return the source context if clear and valid; otherwise, return an empty string."""
+        """Return a clean corpus example sentence using the NLTK engine."""
         normalized_word = word.lower()
+        
+        # Try fetching a concise corpus example from NLTK
+        example = self.nltk_example_engine.get_example_sentence(normalized_word, fallback="")
+        
+        if example:
+            return example
+            
+        # Fallback to OCR context only if it's clean and reasonably short
         cleaned_context = context.strip()
-
         if cleaned_context and not self._looks_like_noisy_context(cleaned_context):
-            if not self._looks_like_unrelated_context(normalized_word, cleaned_context, pos=pos):
+            words = cleaned_context.split()
+            if 5 <= len(words) <= 15 and not self._looks_like_unrelated_context(normalized_word, cleaned_context, pos=pos):
                 return cleaned_context
 
-        # Do not use synthetic/template fallback sentences if unclear
-        return ""
+        return "No concise example available."
 
     def _fetch_dictionary_info(self, word: str, context: str = "", pos: str = "") -> Dict[str, Any]:
         """Tra cứu định nghĩa và từ đồng nghĩa theo ngữ cảnh câu và loại từ để tránh nghĩa sai."""
@@ -373,8 +384,6 @@ class VocabularyExtractor:
     def get_frequency_score(self, lemma: str) -> float:
         freq = self.freq_db.get(lemma)
         if freq is None:
-            # Unknown words without a corpus frequency should get a modest rarity bonus,
-            # while very short common words remain low-priority.
             length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
             return min(0.45 + length_bonus, 0.9)
 
@@ -402,7 +411,6 @@ class VocabularyExtractor:
         rarity = 1.0 - min(frequency / max(len(content_tokens), 1), 1.0)
         length_bonus = min(max(len(lemma) - 4, 0) * 0.03, 0.15)
 
-        # Extra reward for words that appear in a noun chunk or are a meaningful content word
         chunk_bonus = 0.0
         for chunk in doc.noun_chunks:
             if lemma == chunk.root.lemma_.lower():
