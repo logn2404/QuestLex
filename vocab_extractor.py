@@ -1,11 +1,38 @@
 import math
 import urllib.request
 import json
+import re
 from collections import Counter
 from typing import List, Dict, Any
 import spacy
 import torch
 from keybert import KeyBERT
+
+
+DEFAULT_EXAMPLE_TEMPLATES = {
+    "NOUN": [
+        "The {word} is an important concept in modern learning.",
+        "Students often discuss the {word} in class.",
+        "This example highlights the meaning of {word}."
+    ],
+    "VERB": [
+        "Learners should {word} new ideas carefully.",
+        "She tried to {word} her skills through practice.",
+        "We need to {word} strong habits for better progress.",
+        "Teachers encourage students to {word} good habits over time.",
+        "The program helps people {word} their abilities through steady effort."
+    ],
+    "ADJ": [
+        "This approach feels {word} and practical.",
+        "The result is a {word} solution for daily study.",
+        "A {word} method helps learners stay focused."
+    ],
+    "ADV": [
+        "The lesson was completed {word} and clearly.",
+        "She worked {word} to improve her results.",
+        "The task was handled {word} and efficiently."
+    ],
+}
 
 DEFAULT_WEIGHTS = {
     "keybert": 0.25,
@@ -86,39 +113,45 @@ class VocabularyExtractor:
 
         return False
 
+    def _looks_like_unrelated_context(self, word: str, context: str, pos: str = "") -> bool:
+        """Return True when the supplied context is unlikely to reflect the target word meaning."""
+        cleaned_context = context.strip()
+        if not cleaned_context or self._looks_like_noisy_context(cleaned_context):
+            return True
+
+        normalized_word = word.lower()
+        context_words = {token.lemma_.lower() for token in self.nlp(cleaned_context) if token.is_alpha and not token.is_stop}
+        if not context_words:
+            return True
+
+        if normalized_word in context_words:
+            return False
+
+        dictionary_info = self._fetch_dictionary_info(normalized_word, context=cleaned_context, pos=pos)
+        definition = (dictionary_info.get("definition") or "").lower()
+        if not definition:
+            return True
+
+        definition_terms = {
+            term for term in re.findall(r"[a-z']+", definition) if len(term) > 2 and term not in {"with", "from", "into", "this", "that"}
+        }
+        if not definition_terms:
+            return True
+
+        overlap = len(context_words & definition_terms)
+        return overlap < 1
+
     def build_example_sentence(self, word: str, context: str = "", pos: str = "") -> str:
-        """Create a safe example sentence using the word itself when OCR context is unclear or noisy."""
+        """Return the source context if clear and valid; otherwise, return an empty string."""
         normalized_word = word.lower()
         cleaned_context = context.strip()
 
         if cleaned_context and not self._looks_like_noisy_context(cleaned_context):
-            return cleaned_context
+            if not self._looks_like_unrelated_context(normalized_word, cleaned_context, pos=pos):
+                return cleaned_context
 
-        templates = {
-            "NOUN": [
-                f"The {normalized_word} is an important concept in modern learning.",
-                f"Students often discuss the {normalized_word} in class.",
-                f"This example highlights the meaning of {normalized_word}."
-            ],
-            "VERB": [
-                f"Learners should {normalized_word} new ideas carefully.",
-                f"She tried to {normalized_word} her skills through practice.",
-                f"We need to {normalized_word} strong habits for better progress."
-            ],
-            "ADJ": [
-                f"This approach feels {normalized_word} and practical.",
-                f"The result is a {normalized_word} solution for daily study.",
-                f"A {normalized_word} method helps learners stay focused."
-            ],
-            "ADV": [
-                f"The lesson was completed {normalized_word} and clearly.",
-                f"She worked {normalized_word} to improve her results.",
-                f"The task was handled {normalized_word} and efficiently."
-            ]
-        }
-
-        patterns = templates.get(pos.upper(), templates["NOUN"])
-        return patterns[0]
+        # Do not use synthetic/template fallback sentences if unclear
+        return ""
 
     def _fetch_dictionary_info(self, word: str, context: str = "", pos: str = "") -> Dict[str, Any]:
         """Tra cứu định nghĩa và từ đồng nghĩa theo ngữ cảnh câu và loại từ để tránh nghĩa sai."""

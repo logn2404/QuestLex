@@ -178,6 +178,30 @@ class VocabularyExtractorScoringTest(unittest.TestCase):
         self.assertGreaterEqual(confidence, 0.0)
         self.assertTrue(any(keyword in text.lower() for keyword in ["complex", "vocabulary", "discipline", "aspirations"]))
 
+    def test_detect_text_objects_returns_multiple_regions_for_complex_layout(self):
+        image_path = os.path.join(tempfile.gettempdir(), "complex_layout_objects_test.png")
+        img = Image.new("RGB", (1400, 900), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default()
+
+        draw.text((40, 40), "First region contains core vocabulary", fill=(0, 0, 0), font=font)
+        draw.text((760, 90), "Second region carries supporting context", fill=(0, 0, 0), font=font)
+        draw.text((90, 480), "Third region adds another text block", fill=(0, 0, 0), font=font)
+        img.save(image_path)
+
+        extractor = OCRExtractor(languages=['en'], gpu=False)
+        objects = extractor.detect_text_objects(image_path)
+
+        self.assertGreaterEqual(len(objects), 2)
+
+    def test_corrects_common_ocr_typos_with_word_prediction(self):
+        extractor = OCRExtractor(languages=['en'], gpu=False)
+        corrected = extractor.correct_ocr_text("Ths is a sampl e exmple of OCR typo correction.")
+
+        self.assertIn("This", corrected)
+        self.assertIn("sample", corrected.lower())
+        self.assertIn("example", corrected.lower())
+
     def test_dictionary_example_is_used_when_context_is_unclear(self):
         extractor = VocabularyExtractor(spacy_model="en_core_web_sm")
         example = extractor.build_example_sentence(
@@ -188,6 +212,18 @@ class VocabularyExtractorScoringTest(unittest.TestCase):
 
         self.assertIn("cultivate", example.lower())
         self.assertTrue(len(example) > 0)
+
+    def test_example_sentence_uses_definition_clues_when_context_is_unrelated(self):
+        extractor = VocabularyExtractor(spacy_model="en_core_web_sm")
+        info = extractor._fetch_dictionary_info(
+            "cultivate",
+            context="bad ocr noise xzq aa",
+            pos="VERB"
+        )
+        example = info["example_sentence"]
+
+        self.assertIn("cultivate", example.lower())
+        self.assertTrue(any(term in example.lower() for term in ["develop", "grow", "foster", "skill", "habit"]))
 
 
 if __name__ == "__main__":
