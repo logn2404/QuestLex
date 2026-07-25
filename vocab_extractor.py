@@ -2,37 +2,10 @@ import math
 import urllib.request
 import json
 import re
+import threading
 from collections import Counter
 from typing import List, Dict, Any
-import spacy
-import torch
-from keybert import KeyBERT
-
-
-DEFAULT_EXAMPLE_TEMPLATES = {
-    "NOUN": [
-        "The {word} is an important concept in modern learning.",
-        "Students often discuss the {word} in class.",
-        "This example highlights the meaning of {word}."
-    ],
-    "VERB": [
-        "Learners should {word} new ideas carefully.",
-        "She tried to {word} her skills through practice.",
-        "We need to {word} strong habits for better progress.",
-        "Teachers encourage students to {word} good habits over time.",
-        "The program helps people {word} their abilities through steady effort."
-    ],
-    "ADJ": [
-        "This approach feels {word} and practical.",
-        "The result is a {word} solution for daily study.",
-        "A {word} method helps learners stay focused."
-    ],
-    "ADV": [
-        "The lesson was completed {word} and clearly.",
-        "She worked {word} to improve her results.",
-        "The task was handled {word} and efficiently."
-    ],
-}
+from nltk_example_extractor import NLTKExampleExtractor
 
 DEFAULT_WEIGHTS = {
     "keybert": 0.25,
@@ -43,31 +16,18 @@ DEFAULT_WEIGHTS = {
     "user": 0.10,
 }
 
-# Import NLTK WordNet cho bộ từ điển lớn
-import nltk
-try:
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('wordnet', quiet=True)
-    nltk.download('omw-1.4', quiet=True)
-
-from nltk.corpus import wordnet
-from offline_dictionary import LargeOfflineDictionary
-from nltk_example_extractor import NLTKExampleExtractor
-
 class VocabularyExtractor:
     def __init__(self, spacy_model: str = "en_core_web_sm"):
-        print("Loading spaCy model...")
-        self.nlp = spacy.load(spacy_model)
+        print("🚀 Khởi động app thành công ngay lập tức! Đang nạp mô hình AI ngầm...")
+        
+        self.is_ready = False
+        self.spacy_model_name = spacy_model
+        self.nlp = None
+        self.kw_model = None
+        self.dict_engine = None
+        self.nltk_example_engine = None
         self._dictionary_cache: Dict[str, Dict[str, Any]] = {}
-        self.dict_engine = LargeOfflineDictionary()
-        self.nltk_example_engine = NLTKExampleExtractor(min_words=6, max_words=16)
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Loading KeyBERT model on device: {device}...")
-        self.kw_model = KeyBERT(model="all-MiniLM-L6-v2")
-
-        # CSDL Mock điểm số bổ trợ
         self.cefr_db = {
             "apple": "A1", "read": "A1", "important": "B1",
             "algorithm": "C1", "resilient": "C2", "ubiquitous": "C2"
@@ -76,8 +36,35 @@ class VocabularyExtractor:
             "apple": 10000, "important": 5000, "algorithm": 800, "resilient": 200
         }
 
+        threading.Thread(target=self._background_init, daemon=True).start()
+
+    def _background_init(self):
+        try:
+            import spacy
+            import torch
+            from keybert import KeyBERT
+            import nltk
+            from nltk.corpus import wordnet
+            from offline_dictionary import LargeOfflineDictionary
+
+            nltk.data.path.append("./nltk_data")
+
+            self.nlp = spacy.load(self.spacy_model_name)
+            self.dict_engine = LargeOfflineDictionary()
+            self.nltk_example_engine = NLTKExampleExtractor(min_words=6, max_words=16)
+            self.kw_model = KeyBERT(model="./models/all-MiniLM-L6-v2")
+
+            self.is_ready = True
+        except Exception as e:
+            print(f"❌ Lỗi trong quá trình khởi tạo ngầm: {e}")
+
+    def _wait_for_ready(self):
+        if not self.is_ready:
+            while not self.is_ready:
+                import time
+                time.sleep(0.1)
+
     def _merge_weights(self, weights: Dict[str, float] | None) -> Dict[str, float]:
-        """Merge caller weights with the default scoring configuration."""
         merged = dict(DEFAULT_WEIGHTS)
         if weights:
             for key, value in weights.items():
@@ -87,14 +74,12 @@ class VocabularyExtractor:
 
     @staticmethod
     def _normalize_score(value: float, low: float = 0.0, high: float = 1.0) -> float:
-        """Normalize a score into the [0, 1] interval when possible."""
         if high <= low:
             return 0.0
         normalized = (value - low) / (high - low)
         return max(0.0, min(1.0, normalized))
 
     def _looks_like_noisy_context(self, context: str) -> bool:
-        """Detect OCR fragments that are too broken to serve as a trustworthy example."""
         cleaned_context = context.strip()
         if not cleaned_context:
             return True
@@ -118,7 +103,6 @@ class VocabularyExtractor:
         return False
 
     def _looks_like_unrelated_context(self, word: str, context: str, pos: str = "") -> bool:
-        """Return True when the supplied context is unlikely to reflect the target word meaning."""
         cleaned_context = context.strip()
         if not cleaned_context or self._looks_like_noisy_context(cleaned_context):
             return True
@@ -146,26 +130,20 @@ class VocabularyExtractor:
         return overlap < 1
 
     def build_example_sentence(self, word: str, context: str = "", pos: str = "") -> str:
-        """Return a clean corpus example sentence using the NLTK engine."""
         normalized_word = word.lower()
-        
-        # Try fetching a concise corpus example from NLTK
         example = self.nltk_example_engine.get_example_sentence(normalized_word, fallback="")
-        
         if example:
             return example
             
-        # Fallback to OCR context only if it's clean and reasonably short
         cleaned_context = context.strip()
         if cleaned_context and not self._looks_like_noisy_context(cleaned_context):
             words = cleaned_context.split()
             if 5 <= len(words) <= 15 and not self._looks_like_unrelated_context(normalized_word, cleaned_context, pos=pos):
                 return cleaned_context
 
-        return "No concise example available."
+        return ""
 
     def _fetch_dictionary_info(self, word: str, context: str = "", pos: str = "") -> Dict[str, Any]:
-        """Tra cứu định nghĩa và từ đồng nghĩa theo ngữ cảnh câu và loại từ để tránh nghĩa sai."""
         normalized_word = word.lower()
         cache_key = f"{normalized_word}|{pos}|{context.lower()}"
         if cache_key in self._dictionary_cache:
@@ -174,100 +152,65 @@ class VocabularyExtractor:
         info = {"definition": "", "synonyms": []}
         context_words = set(context.lower().split())
 
-        try:
-            synsets = wordnet.synsets(normalized_word)
-            if synsets:
-                preferred_synset = None
-                best_score = -1.0
-                pos_map = {
-                    "NOUN": wordnet.NOUN,
-                    "VERB": wordnet.VERB,
-                    "ADJ": wordnet.ADJ,
-                    "ADV": wordnet.ADV,
-                    "PROPN": wordnet.NOUN,
-                }
-                target_pos = pos_map.get(pos.upper(), None)
-
-                for syn in synsets:
-                    score = 0.0
-                    if target_pos is not None and syn.pos() == target_pos:
-                        score += 1.5
-
-                    definition_words = set(syn.definition().lower().split())
-                    overlap = len(context_words & definition_words)
-                    score += overlap * 0.5
-
-                    if score > best_score:
-                        best_score = score
-                        preferred_synset = syn
-
-                if preferred_synset is None:
-                    preferred_synset = synsets[0]
-
-                info["definition"] = preferred_synset.definition()
-
-                synonyms_set = set()
-                for lemma in preferred_synset.lemmas():
-                    syn_name = lemma.name().replace('_', ' ')
-                    if syn_name.lower() != normalized_word:
-                        synonyms_set.add(syn_name)
-
-                if not context:
-                    info["synonyms"] = list(synonyms_set)[:4]
-                else:
-                    context_related = []
-                    for synonym in synonyms_set:
-                        if len(synonym.split()) > 3:
-                            continue
-                        if synonym.lower() in context.lower():
-                            context_related.append(synonym)
-                        else:
-                            synonym_words = set(synonym.lower().split())
-                            if len(context_words & synonym_words) > 0:
-                                context_related.append(synonym)
-
-                    if context_related:
-                        info["synonyms"] = list(context_related)[:4]
-                    else:
-                        info["synonyms"] = list(synonyms_set)[:4]
-        except Exception:
-            pass
+        if self.dict_engine and hasattr(self.dict_engine, "lookup"):
+            try:
+                offline_result = self.dict_engine.lookup(normalized_word)
+                if offline_result:
+                    if isinstance(offline_result, dict):
+                        info["definition"] = offline_result.get("definition", "")
+                        info["synonyms"] = offline_result.get("synonyms", [])[:4]
+                    elif isinstance(offline_result, str):
+                        info["definition"] = offline_result
+            except Exception:
+                pass
 
         if not info["definition"]:
             try:
-                url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{normalized_word}"
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=3) as response:
-                    if response.status == 200:
-                        data = json.loads(response.read().decode())[0]
-                        meanings = data.get("meanings", [])
-                        if meanings:
-                            candidate_meanings = []
-                            for meaning in meanings:
-                                meaning_pos = meaning.get("partOfSpeech", "")
-                                if pos and meaning_pos and meaning_pos.lower() != pos.lower():
-                                    continue
-                                candidate_meanings.append(meaning)
+                import nltk
+                from nltk.corpus import wordnet
+                synsets = wordnet.synsets(normalized_word)
+                if synsets:
+                    preferred_synset = None
+                    best_score = -1.0
+                    pos_map = {
+                        "NOUN": wordnet.NOUN,
+                        "VERB": wordnet.VERB,
+                        "ADJ": wordnet.ADJ,
+                        "ADV": wordnet.ADV,
+                        "PROPN": wordnet.NOUN,
+                    }
+                    target_pos = pos_map.get(pos.upper(), None)
 
-                            if not candidate_meanings:
-                                candidate_meanings = meanings
+                    for syn in synsets:
+                        score = 0.0
+                        if target_pos is not None and syn.pos() == target_pos:
+                            score += 1.5
 
-                            chosen = candidate_meanings[0]
-                            defs = chosen.get("definitions", [])
-                            if defs:
-                                info["definition"] = defs[0].get("definition", "")
-                            synonyms = []
-                            for meaning in candidate_meanings:
-                                synonyms.extend(meaning.get("synonyms", []))
-                            info["synonyms"] = list(set(synonyms))[:4]
+                        definition_words = set(syn.definition().lower().split())
+                        overlap = len(context_words & definition_words)
+                        score += overlap * 0.5
+
+                        if score > best_score:
+                            best_score = score
+                            preferred_synset = syn
+
+                    if preferred_synset is None:
+                        preferred_synset = synsets[0]
+
+                    info["definition"] = preferred_synset.definition()
+
+                    synonyms_set = set()
+                    for lemma in preferred_synset.lemmas():
+                        syn_name = lemma.name().replace('_', ' ')
+                        if syn_name.lower() != normalized_word:
+                            synonyms_set.add(syn_name)
+
+                    info["synonyms"] = list(synonyms_set)[:4]
             except Exception:
-                info["definition"] = "Không tìm thấy định nghĩa chi tiết trong từ điển."
+                pass
 
         if not info["definition"]:
-            info["definition"] = f"A meaning of '{normalized_word}' is available in the dictionary."
-
-        if not info["synonyms"]:
-            info["synonyms"] = []
+            info["definition"] = f"A definition for '{normalized_word}' is currently unavailable."
 
         info["example_sentence"] = self.build_example_sentence(
             word=normalized_word,
@@ -279,7 +222,6 @@ class VocabularyExtractor:
         return info
 
     def _normalize_token_pos(self, token: Any) -> str:
-        """Normalize spaCy POS output using both coarse and fine-grained tags."""
         tag = (token.tag_ or "").upper()
         pos = (token.pos_ or "").upper()
 
@@ -298,9 +240,10 @@ class VocabularyExtractor:
         return "NOUN"
 
     def _has_dictionary_meaning(self, word: str, pos: str = "") -> bool:
-        """Check whether a candidate actually resolves to a meaningful dictionary entry."""
         normalized_word = word.lower()
         try:
+            import nltk
+            from nltk.corpus import wordnet
             synsets = wordnet.synsets(normalized_word)
             if synsets:
                 pos_map = {
@@ -314,22 +257,15 @@ class VocabularyExtractor:
                 if target_pos is not None:
                     return any(syn.pos() == target_pos for syn in synsets)
                 return True
+            return False
         except Exception:
             pass
-
-        try:
-            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{normalized_word}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=3) as response:
-                return response.status == 200
-        except Exception:
-            return False
+        return False
 
     def extract_candidates(self, text: str) -> List[Dict[str, str]]:
         doc = self.nlp(text)
         candidates = []
         seen_lemmas = set()
-
         target_pos = {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}
 
         for token in doc:
@@ -363,7 +299,6 @@ class VocabularyExtractor:
             candidates=candidate_words, 
             top_n=len(candidate_words)
         )
-        
         kb_dict = {word: float(score) for word, score in keywords}
         
         for word in candidate_words:
@@ -377,7 +312,6 @@ class VocabularyExtractor:
         level = self.cefr_db.get(lemma)
         if level is not None:
             return mapping.get(level, 0.7)
-
         length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
         return min(0.45 + length_bonus, 0.95)
 
@@ -386,17 +320,14 @@ class VocabularyExtractor:
         if freq is None:
             length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
             return min(0.45 + length_bonus, 0.9)
-
         if freq <= 0:
             return 0.8
-
         commonness = min(math.log10(freq) / 5.0, 1.0)
         rarity = 1.0 - commonness
         length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
         return min(max(rarity + length_bonus, 0.0), 1.0)
 
     def get_lexical_specificity_score(self, lemma: str, text: str) -> float:
-        """Reward rarer, more specialized words that appear as content terms in the current sentence."""
         doc = self.nlp(text)
         content_tokens = [
             token.lemma_.lower()
@@ -410,7 +341,6 @@ class VocabularyExtractor:
         frequency = token_count.get(lemma, 0)
         rarity = 1.0 - min(frequency / max(len(content_tokens), 1), 1.0)
         length_bonus = min(max(len(lemma) - 4, 0) * 0.03, 0.15)
-
         chunk_bonus = 0.0
         for chunk in doc.noun_chunks:
             if lemma == chunk.root.lemma_.lower():
@@ -420,7 +350,6 @@ class VocabularyExtractor:
         return min(max(rarity + length_bonus + chunk_bonus, 0.0), 1.0)
 
     def get_context_focus_score(self, lemma: str, text: str) -> float:
-        """Prefer words that are central to the sentence context rather than generic fillers."""
         doc = self.nlp(text)
         candidate_sentences = [
             sent for sent in doc.sents
@@ -434,7 +363,6 @@ class VocabularyExtractor:
             1 for token in doc
             if token.lemma_.lower() == lemma and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}
         )
-
         return min(sentence_bonus + min(content_overlap * 0.05, 0.15), 1.0)
 
     def get_user_score(self, lemma: str, user_history: Dict[str, Any]) -> float:
@@ -446,11 +374,7 @@ class VocabularyExtractor:
 
     def get_pos_bonus(self, pos: str, lemma: str) -> float:
         pos_bonus = {
-            "NOUN": 0.15,
-            "PROPN": 0.12,
-            "VERB": 0.05,
-            "ADJ": 0.05,
-            "ADV": 0.02,
+            "NOUN": 0.15, "PROPN": 0.12, "VERB": 0.05, "ADJ": 0.05, "ADV": 0.02,
         }
         length_bonus = min(max(len(lemma) - 4, 0) * 0.02, 0.10)
         return pos_bonus.get(pos, 0.0) + length_bonus
@@ -464,6 +388,8 @@ class VocabularyExtractor:
         score_threshold: float | None = None,
         level: str | None = None
     ) -> List[Dict[str, Any]]:
+        self._wait_for_ready()
+
         weights = self._merge_weights(weights)
         candidates = self.extract_candidates(text)
         kb_scores = self.get_keybert_scores(text, candidates)
@@ -516,20 +442,12 @@ class VocabularyExtractor:
 
         if level is not None:
             level_thresholds = {
-                "A1": 0.10,
-                "A2": 0.30,
-                "B1": 0.50,
-                "B2": 0.70,
-                "C1": 0.90,
-                "C2": 1.00,
+                "A1": 0.10, "A2": 0.30, "B1": 0.50, "B2": 0.70, "C1": 0.90, "C2": 1.00,
             }
             min_cefr = level_thresholds.get(level.upper(), 0.50)
             results = [item for item in results if item["breakdown"]["cefr"] >= min_cefr]
 
-        if top_k is None or top_k >= len(results):
-            top_results = results
-        else:
-            top_results = results[:top_k]
+        top_results = results if (top_k is None or top_k >= len(results)) else results[:top_k]
 
         for item in top_results:
             dict_info = self._fetch_dictionary_info(

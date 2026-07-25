@@ -1,45 +1,35 @@
 import re
 import string
 from typing import Dict, List, Optional
+import os
+import pickle
+import re
 import nltk
-
-# ------------------------------------------------------------------
-# 1. Download Required NLTK Corpora & Tokenizers
-# ------------------------------------------------------------------
-NLTK_RESOURCES = [
-    ("corpora/brown", "brown"),
-    ("corpora/gutenberg", "gutenberg"),
-    ("tokenizers/punkt", "punkt"),
-    ("tokenizers/punkt_tab", "punkt_tab"),
-    ("corpora/wordnet", "wordnet"),
-    ("corpora/omw-1.4", "omw-1.4"),
-]
-
-for resource_path, resource_id in NLTK_RESOURCES:
-    try:
-        nltk.data.find(resource_path)
-    except LookupError:
-        nltk.download(resource_id, quiet=True)
-
-from nltk.corpus import brown, gutenberg
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import brown, gutenberg
+from nltk.stem import WordNetLemmatizer
 
 
 class NLTKExampleExtractor:
-    """
-    Extracts concise, high-quality example sentences for English words
-    using offline NLTK corpora (Brown and Gutenberg).
-    """
-
-    def __init__(self, min_words: int = 6, max_words: int = 16):
+    def __init__(self, min_words: int = 6, max_words: int = 16, cache_path: str = "nltk_index_cache.pkl"):
         self.min_words = min_words
         self.max_words = max_words
         self.lemmatizer = WordNetLemmatizer()
-
-        # Inverted Index mapping: word_lemma -> List[clean_sentences]
+        self.cache_path = cache_path
         self.index: Dict[str, List[str]] = {}
-        self._build_index()
+        
+        # Load cache nếu có, ngược lại mới build mới và lưu lại
+        if os.path.exists(self.cache_path):
+            # print(f"Loading NLTK index from cache ({self.cache_path})...")
+            with open(self.cache_path, "rb") as f:
+                self.index = pickle.load(f)
+            # print(f"Loaded {len(self.index):,} unique vocabulary terms from cache instantly.")
+        else:
+            self._build_index()
+            # print(f"Saving NLTK index to cache ({self.cache_path})...")
+            with open(self.cache_path, "wb") as f:
+                pickle.dump(self.index, f)
 
     def _is_clean_sentence(self, token_list: List[str]) -> bool:
         """Validates whether a sentence token sequence meets grammar standards."""
@@ -66,7 +56,7 @@ class NLTKExampleExtractor:
 
     def _build_index(self):
         """Pre-indexes NLTK corpora using safe manual sentence tokenization."""
-        print("Building NLTK index from Brown and Gutenberg corpora...")
+        # print("Building NLTK index from Brown and Gutenberg corpora...")
         
         # Gather raw text chunks safely to avoid tokenizer exceptions
         raw_texts = []
@@ -109,7 +99,7 @@ class NLTKExampleExtractor:
                 if len(self.index[key]) < 5:
                     self.index[key].append(formatted_sentence)
 
-        print(f"Indexing complete. Built database for {len(self.index):,} unique vocabulary terms.\n")
+        # print(f"Indexing complete. Built database for {len(self.index):,} unique vocabulary terms.\n")
 
     def get_example_sentence(self, word: str, fallback: str = "") -> str:
         """Retrieves the shortest, cleanest example sentence for a target word."""

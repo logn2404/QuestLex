@@ -4,12 +4,7 @@ from typing import Dict, Any
 
 class LargeOfflineDictionary:
     def __init__(self):
-        print("⚡ Đang khởi động bộ từ điển lớn Offline (WordNet)...")
-        try:
-            nltk.data.find('corpora/wordnet')
-        except LookupError:
-            nltk.download('wordnet', quiet=True)
-            nltk.download('omw-1.4', quiet=True)
+        pass
 
     def lookup(self, word: str) -> Dict[str, Any]:
         """Tra cứu từ vựng từ bộ từ điển offline hàng trăm nghìn từ."""

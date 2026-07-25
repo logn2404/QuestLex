@@ -1,19 +1,21 @@
 import os
 import json
 from PIL import Image, ImageDraw
-
-# Import các Module tự xây dựng
 from ocr_extractor import OCRExtractor
 from vocab_extractor import VocabularyExtractor
 from revision_engine import RevisionEngine
 from flashcard_cli import run_flashcard_session, clear_screen
+import nltk
+from keybert import KeyBERT
+
+nltk.data.path.append("./nltk_data")
+kw_model = KeyBERT(model="./models/all-MiniLM-L6-v2")
 
 LEVEL_OPTIONS = {
     "1": {"label": "Beginner", "cefr": "A1"},
     "2": {"label": "Amateur", "cefr": "B2"},
     "3": {"label": "Expert", "cefr": "C1"},
 }
-
 
 def choose_user_level() -> str:
     """Prompt once at startup so the user can pick the desired CEFR target band."""
@@ -36,22 +38,10 @@ def choose_user_level() -> str:
 
         input("⚠️ Lựa chọn không hợp lệ. Nhấn [Enter] để thử lại...")
 
-
-def create_sample_screenshot(filename: str = "sample_screenshot.png") -> str:
-    """Tạo một bức ảnh chứa văn bản tiếng Anh mẫu để test OCR."""
-    text = (
-        "Many students try to improve their daily habits to achieve better results in their academic life. It is important to create a clear schedule and follow it consistently. However, modern distractions often impede deep focus and mitigate long-term productivity. To overcome this, learners must cultivate strong mental discipline and avoid procrastination when studying complex subjects."
-    )
-    img = Image.new('RGB', (950, 200), color=(245, 247, 250))
-    d = ImageDraw.Draw(img)
-    d.text((30, 40), text, fill=(30, 30, 30))
-    img.save(filename)
-    return filename
-
 def main():
     USER_ID = "user_dev_01"
 
-    print("⏳ Đang khởi động AI Models (EasyOCR & KeyBERT) lên GPU... Vui lòng đợi trong giây lát...")
+    # print("⏳ Đang khởi động AI Models (EasyOCR & KeyBERT) lên GPU... Vui lòng đợi trong giây lát...")
     ocr_engine = OCRExtractor(languages=['en'], gpu=True)
     vocab_engine = VocabularyExtractor(spacy_model="en_core_web_sm")
     db = RevisionEngine("vocab_app.db")
@@ -59,12 +49,13 @@ def main():
     if selected_level is None:
         selected_level = choose_user_level()
         db.save_user_level(USER_ID, selected_level)
+        
     while True:
         clear_screen()
         print("==========================================")
         print("      🤖 QUESTLEX - AI VOCAB APP          ")
         print("==========================================")
-        print("  [1] 📸 Quét ảnh chụp màn hình (Ảnh mẫu)")
+        print("  [1] 📸 Quét toàn bộ ảnh trong thư mục 'image'")
         print("  [2] 🧠 Ôn tập Flashcard (Spaced Repetition)")
         print("  [3] 📚 Xem toàn bộ lịch sử từ vựng")
         print("  [4] ❌ Thoát ứng dụng")
@@ -74,53 +65,69 @@ def main():
         
         if choice == '1':
             clear_screen()
-            print("⏳ Đang tạo ảnh mẫu và tiến hành OCR & Trích xuất từ vựng...\n")
+            print("⏳ Đang tiến hành OCR & Trích xuất từ vựng từ thư mục 'image'...\n")
             
-            image_path = "sample_screenshot.png"
-            # create_sample_screenshot(image_path)
-            
-            # 1. OCR trích xuất text từ ảnh
-            # extracted_text = "Many students try to improve their daily habits to achieve better results in their academic life. It is important to create a clear schedule and follow it consistently. However, modern distractions often impede deep focus and mitigate long-term productivity. To overcome this, learners must cultivate strong mental discipline and avoid procrastination when studying complex subjects."
-            extracted_text, conf = ocr_engine.extract_text_from_image(image_path, use_preprocessing=False)
-            print(f"📄 Văn bản OCR đọc được: \"{extracted_text}\"\n")
-            
-            # 2. Lấy lịch sử user để thuật toán chấm điểm ưu tiên
-            user_profile = db.get_user_history_for_extractor(USER_ID)
-            
-            # 3. Phân tích và lấy tất cả từ phù hợp với mức độ người dùng
-            top_vocab = vocab_engine.process_text(
-                text=extracted_text,
-                user_history=user_profile,
-                top_k=None,
-                score_threshold=0.45,
-                level=selected_level
-            )
-            
-            print("✅ ĐÃ TÌM THẤY & TRA TỪ ĐIỂN XONG:")
-            print("-" * 50)
-            for item in top_vocab:
-                word = item['word']
-                print(f"📌 {word.upper()} ({item['pos']})")
-                print(f"   📖 Nghĩa: {item['definition']}")
-                print(f"   🔗 Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
-                print(f"   📝 Ví dụ: \"{item['context_example']}\"\n")
+            image_dir = "image"
+            if not os.path.exists(image_dir):
+                print(f"⚠️ Không tìm thấy thư mục '{image_dir}'!")
+                input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
+                continue
+
+            # Lấy danh sách tất cả các file ảnh trong thư mục image
+            valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
+            image_files = [f for f in os.listdir(image_dir) if f.lower().endswith(valid_extensions)]
+
+            if not image_files:
+                print(f"⚠️ Không tìm thấy file ảnh nào trong thư mục '{image_dir}'!")
+                input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
+                continue
+
+            # Vòng lặp duyệt qua từng ảnh - GIỮ NGUYÊN LOGIC & PRINT CỦA CODE CŨ
+            for img_name in image_files:
+                image_path = os.path.join(image_dir, img_name)
+                print(f"🖼️  --- ĐANG XỬ LÝ: {img_name} ---")
                 
-                # 4. Lưu vào Database
-                db.add_word_to_study(
-                    user_id=USER_ID, 
-                    word=word, 
-                    pos=item['pos'], 
-                    definition=item['definition'], 
-                    synonyms=item['synonyms'], 
-                    context_example=item['context_example']
+                # 1. OCR trích xuất text từ ảnh
+                extracted_text, conf = ocr_engine.extract_text_from_image(image_path)
+                print(f"📄 Văn bản OCR đọc được: \"{extracted_text}\"\n")
+                
+                # 2. Lấy lịch sử user để thuật toán chấm điểm ưu tiên
+                user_profile = db.get_user_history_for_extractor(USER_ID)
+                
+                # 3. Phân tích và lấy tất cả từ phù hợp với mức độ người dùng
+                top_vocab = vocab_engine.process_text(
+                    text=extracted_text,
+                    user_history=user_profile,
+                    top_k=None,
+                    score_threshold=0.45,
+                    level=selected_level
                 )
+                
+                print("✅ ĐÃ TÌM THẤY & TRA TỪ ĐIỂN XONG:")
+                print("-" * 50)
+                for item in top_vocab:
+                    word = item['word']
+                    print(f"📌 {word.upper()} ({item['pos']})")
+                    print(f"   📖 Nghĩa: {item['definition']}")
+                    print(f"   🔗 Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
+                    print(f"   📝 Ví dụ: \"{item['context_example']}\"\n")
+                    
+                    # 4. Lưu vào Database
+                    db.add_word_to_study(
+                        user_id=USER_ID, 
+                        word=word, 
+                        pos=item['pos'], 
+                        definition=item['definition'], 
+                        synonyms=item['synonyms'], 
+                        context_example=item['context_example']
+                    )
+                
+                print("-" * 50 + "\n")
             
-            print("-" * 50)
             print("💾 Đã tự động lưu các từ này vào kho Flashcard!")
             input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
             
         elif choice == '2':
-            # Chuyển sang màn hình ôn tập Flashcard
             run_flashcard_session(USER_ID)
             
         elif choice == '3':
@@ -158,4 +165,3 @@ if __name__ == "__main__":
         print("\n❌ CHƯƠNG TRÌNH GẶP LỖI:")
         traceback.print_exc()
         input("\nNhấn Enter để thoát...")
-        
