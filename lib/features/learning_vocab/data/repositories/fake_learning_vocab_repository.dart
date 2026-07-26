@@ -133,13 +133,6 @@ class FakeLearningVocabRepository implements LearningVocabRepository {
         cefrLevel: 'C1',
         currentProgress: 85,
       ),
-      LearningVocabItem(
-        id: '19',
-        word: 'Mediator Pattern',
-        meaning: 'Mẫu thiết kế Mediator',
-        cefrLevel: 'B1',
-        currentProgress: 95,
-      ),
     ];
   }
 

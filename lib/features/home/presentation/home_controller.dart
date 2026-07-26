@@ -84,11 +84,10 @@ class HomeController extends ChangeNotifier {
   bool _isCapturingNow = false;
 
   HomeController({
-    required DashboardRepository repository,
+    required this._repository,
     required GameTimerService timerService,
     TriggerConfigController? triggerConfigController,
-  })  : _repository = repository,
-        _timerService = timerService,
+  })  : _timerService = timerService,
         triggerConfigController = triggerConfigController ?? TriggerConfigController() {
     this.triggerConfigController.addListener(_handleTriggerConfigChanged);
     loadStats();
@@ -106,7 +105,7 @@ class HomeController extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _stats = await _repository.getDashboardStats();
+    _stats = _repository.getDashboardStats();
 
     _isLoading = false;
     notifyListeners();
