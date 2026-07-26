@@ -31,7 +31,7 @@ class CefrBarChart extends StatelessWidget {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: data.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final item = data[index];
             final widthFactor = (item.total / maxCount).clamp(0.02, 1.0);

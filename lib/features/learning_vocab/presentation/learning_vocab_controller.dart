@@ -26,8 +26,7 @@ class LearningVocabController extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   // Constructor nhận repository
-  LearningVocabController({required LearningVocabRepository repository})
-      : _repository = repository {
+  LearningVocabController({required this._repository}) {
     loadData();
   }
 

@@ -34,7 +34,7 @@ class CerfMas extends StatelessWidget {
                   value: 1.0,
                   strokeWidth: 8,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    primaryColor.withOpacity(0.15),
+                    primaryColor.withValues(alpha: 0.15),
                   ),
                 ),
               ),
@@ -58,7 +58,7 @@ class CerfMas extends StatelessWidget {
                   color: primaryColor,
                   boxShadow: [
                     BoxShadow(
-                      color: primaryColor.withOpacity(0.3),
+                      color: primaryColor.withValues(alpha: 0.3),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),

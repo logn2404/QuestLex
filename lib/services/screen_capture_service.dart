@@ -66,8 +66,8 @@ class ScreenCaptureService {
 
       // 1. Lấy kích thước màn hình
       final hdcScreen = GetDC(0);
-      final width = GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXSCREEN);
-      final height = GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYSCREEN);
+      final width = GetSystemMetrics(SM_CXSCREEN);
+      final height = GetSystemMetrics(SM_CYSCREEN);
 
       // 2. Tạo Device Context & Bitmap
       final hdcMem = CreateCompatibleDC(hdcScreen);
@@ -75,7 +75,7 @@ class ScreenCaptureService {
       final hOld = SelectObject(hdcMem, hBitmap);
 
       // 3. BitBlt lấy Pixel
-      BitBlt(hdcMem, 0, 0, width, height, hdcScreen, 0, 0, ROP_CODE.SRCCOPY);
+      BitBlt(hdcMem, 0, 0, width, height, hdcScreen, 0, 0, SRCCOPY);
 
       // 4. Trích xuất dữ liệu thô (Raw Pixel Buffer)
       final bmi = calloc<BITMAPINFO>();
