@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
-
+import 'package:provider/provider.dart';
+import '../../learning_vocab/presentation/learning_page.dart';
 import '../../../screens/widgets/ai_scan_toggle_card.dart';
 import '../../../screens/widgets/dashboard_action_card.dart';
 import '../../../screens/widgets/scan_timer_card.dart';
 import '../../../services/game_timer_service.dart';
 import '../data/repositories/fake_dashboard_repository.dart';
 import 'home_controller.dart';
+import 'trigger_config_controller.dart';
+import '../../../screens/widgets/trigger_settings_bottom_sheet.dart';
+import '../../inventory_vocab/presentation/inventory_page.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,10 +21,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final HomeController _controller;
+  late final TriggerConfigController _triggerConfigController;
 
   @override
   void initState() {
     super.initState();
+    _triggerConfigController = TriggerConfigController();
     _controller = HomeController(
       repository: FakeDashboardRepository(),
       timerService: GameTimerService(
@@ -29,6 +36,7 @@ class _HomePageState extends State<HomePage> {
           }
         },
       ),
+      triggerConfigController: _triggerConfigController,
     );
     _controller.addListener(_handleControllerChange);
   }
@@ -37,6 +45,24 @@ class _HomePageState extends State<HomePage> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  /// Mở Bảng Cấu hình Trigger
+  void _openTriggerSettings() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        // Cung cấp instance _controller cho BottomSheet thông qua ChangeNotifierProvider.value
+        return ChangeNotifierProvider.value(
+          value: _triggerConfigController,
+          child: const TriggerSettingsBottomSheet(),
+        );
+      },
+    );
   }
 
   Future<bool> _showPrivacyWarningDialog(BuildContext context) async {
@@ -90,27 +116,22 @@ class _HomePageState extends State<HomePage> {
         false;
   }
 
-  /// Xử lý sự kiện gạt công tắc AI Scan (Đã thêm tham số controller)
-void _onToggleScanning(
-  bool value, 
-  BuildContext context, 
-  HomeController controller, // 👈 Thêm controller vào đây
-) async {
-  if (value) {
-    bool confirmed = await _showPrivacyWarningDialog(context);
+  /// Xử lý sự kiện gạt công tắc AI Scan
+  void _onToggleScanning(bool value) async {
+    if (value) {
+      bool confirmed = await _showPrivacyWarningDialog(context);
 
-    // Kiểm tra context.mounted để hết sạch warning cũ
-    if (!context.mounted) return;
+      if (!mounted) return;
 
-    if (confirmed) {
-      controller.toggleScanning(true, context);
+      if (confirmed) {
+        _controller.toggleScanning(true);
+      } else {
+        _controller.toggleScanning(false);
+      }
     } else {
-      controller.toggleScanning(false, context);
+      _controller.toggleScanning(false);
     }
-  } else {
-    controller.toggleScanning(false, context);
   }
-}
 
   @override
   void dispose() {
@@ -122,7 +143,7 @@ void _onToggleScanning(
   @override
   Widget build(BuildContext context) {
     final stats = _controller.stats;
-    
+
     if (stats == null || _controller.isLoading) {
       return Scaffold(
         appBar: AppBar(
@@ -150,11 +171,14 @@ void _onToggleScanning(
               isExceeding3Hours: _controller.isExceeding3Hours,
             ),
             const SizedBox(height: 12),
+            
+            // 🎯 CARD AI SCAN + NÚT SETTINGS TRIGGER
             AiScanToggleCard(
               isScanningActive: _controller.isScanningActive,
-              // ✅ Dùng anonymous function để nhận giá trị bool (value) và truyền đủ context, controller
-            onChanged: (value) => _onToggleScanning(value, context, this._controller),
+              onChanged: _onToggleScanning,
+              onOpenSettings: _openTriggerSettings, // 👈 Truyền callback mở Cài đặt
             ),
+            
             const SizedBox(height: 24),
             LayoutBuilder(
               builder: (context, constraints) {
@@ -171,7 +195,14 @@ void _onToggleScanning(
                     DashboardActionCard(
                       title: 'KHO TỪ VỰNG',
                       icon: Icons.menu_book_rounded,
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const InventoryPage(),
+                          ),
+                        );
+                      },
                       subContent: RichText(
                         textAlign: TextAlign.center,
                         text: TextSpan(
@@ -193,7 +224,14 @@ void _onToggleScanning(
                     DashboardActionCard(
                       title: 'TỪ VỰNG ĐANG HỌC',
                       icon: Icons.edit_note_rounded,
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const LearningPage(),
+                          ),
+                        );
+                      },
                       subContent: RichText(
                         textAlign: TextAlign.center,
                         text: TextSpan(
