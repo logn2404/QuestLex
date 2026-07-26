@@ -1,4 +1,5 @@
 import os
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 import json
 from PIL import Image, ImageDraw
 from ocr_extractor import OCRExtractor
