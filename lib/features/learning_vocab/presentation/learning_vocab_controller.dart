@@ -1,3 +1,4 @@
+import 'dart:async'; // 👈 1. Thêm import dart:async để dùng Timer
 import 'package:flutter/material.dart';
 import '../domain/models/daily_cefr_count.dart';
 import '../domain/models/learning_vocab_item.dart';
@@ -17,6 +18,9 @@ class LearningVocabController extends ChangeNotifier {
   String _searchQuery = '';
   bool _isLoading = false;
 
+  // 👈 2. Khai báo Timer cho Debounce
+  Timer? _debounceTimer;
+
   List<LearningVocabItem> get vocabList => _filteredVocab;
   List<DailyCEFRCount> get dailyStats => _dailyStats;
   List<DailyCEFRCount> get monthlyStats => _monthlyStats;
@@ -25,8 +29,8 @@ class LearningVocabController extends ChangeNotifier {
   double get leftPanelWidth => _leftPanelWidth;
   bool get isLoading => _isLoading;
 
-  // Constructor nhận repository
-  LearningVocabController({required this._repository}) {
+  LearningVocabController({required LearningVocabRepository repository})
+      : _repository = repository {
     loadData();
   }
 
@@ -65,10 +69,14 @@ class LearningVocabController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // 👈 3. Áp dụng Debounce 300ms cho hàm search
   void search(String query) {
-    _searchQuery = query;
-    _applyFilter();
-    notifyListeners();
+    _debounceTimer?.cancel(); // Hủy timer cũ nếu người dùng còn đang gõ
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _searchQuery = query;
+      _applyFilter();
+      notifyListeners(); // Chỉ rebuild UI sau khi người dùng ngừng gõ 300ms
+    });
   }
 
   void _applyFilter() {
@@ -81,5 +89,12 @@ class LearningVocabController extends ChangeNotifier {
             item.meaning.toLowerCase().contains(q);
       }).toList();
     }
+  }
+
+  // 👈 4. Hủy Timer khi Controller bị hủy để tránh leak bộ nhớ
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    super.dispose();
   }
 }

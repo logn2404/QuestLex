@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../learning_vocab/presentation/learning_page.dart';
-import '../../../screens/widgets/ai_scan_toggle_card.dart';
-import '../../../screens/widgets/dashboard_action_card.dart';
-import '../../../screens/widgets/scan_timer_card.dart';
-import '../../../services/game_timer_service.dart';
-import '../data/repositories/fake_dashboard_repository.dart';
-import 'home_controller.dart';
-import 'trigger_config_controller.dart';
-import '../../../screens/widgets/trigger_settings_bottom_sheet.dart';
-import '../../inventory_vocab/presentation/inventory_page.dart';
 
+import 'package:questlex/features/learning_vocab/presentation/learning_page.dart';
+import 'package:questlex/features/inventory_vocab/presentation/inventory_page.dart';
+import 'package:questlex/features/home/data/repositories/fake_dashboard_repository.dart';
+import 'package:questlex/features/home/presentation/home_controller.dart';
+import 'package:questlex/features/home/presentation/trigger_config_controller.dart';
+import 'package:questlex/features/home/presentation/widgets/monthly_diff_badge.dart';
+
+import 'package:questlex/screens/widgets/ai_scan_toggle_card.dart';
+import 'package:questlex/screens/widgets/dashboard_action_card.dart';
+import 'package:questlex/screens/widgets/scan_timer_card.dart';
+import 'package:questlex/screens/widgets/trigger_settings_bottom_sheet.dart';
+import 'package:questlex/services/game_timer_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -47,7 +49,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// Mở Bảng Cấu hình Trigger
   void _openTriggerSettings() {
     showModalBottomSheet(
       context: context,
@@ -56,7 +57,6 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        // Cung cấp instance _controller cho BottomSheet thông qua ChangeNotifierProvider.value
         return ChangeNotifierProvider.value(
           value: _triggerConfigController,
           child: const TriggerSettingsBottomSheet(),
@@ -90,9 +90,7 @@ class _HomePageState extends State<HomePage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop(false);
-                  },
+                  onPressed: () => Navigator.of(context).pop(false),
                   child: const Text('Khoan đã', style: TextStyle(color: Colors.grey)),
                 ),
                 const SizedBox(width: 8),
@@ -104,9 +102,7 @@ class _HomePageState extends State<HomePage> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () {
-                    Navigator.of(context).pop(true);
-                  },
+                  onPressed: () => Navigator.of(context).pop(true),
                   child: const Text('Đồng ý'),
                 ),
               ],
@@ -116,7 +112,6 @@ class _HomePageState extends State<HomePage> {
         false;
   }
 
-  /// Xử lý sự kiện gạt công tắc AI Scan
   void _onToggleScanning(bool value) async {
     if (value) {
       bool confirmed = await _showPrivacyWarningDialog(context);
@@ -172,11 +167,10 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 12),
             
-            // 🎯 CARD AI SCAN + NÚT SETTINGS TRIGGER
             AiScanToggleCard(
               isScanningActive: _controller.isScanningActive,
               onChanged: _onToggleScanning,
-              onOpenSettings: _openTriggerSettings, // 👈 Truyền callback mở Cài đặt
+              onOpenSettings: _openTriggerSettings,
             ),
             
             const SizedBox(height: 24),
@@ -192,6 +186,7 @@ class _HomePageState extends State<HomePage> {
                   mainAxisSpacing: 12,
                   childAspectRatio: 1.1,
                   children: [
+                    // 1. KHO TỪ VỰNG
                     DashboardActionCard(
                       title: 'KHO TỪ VỰNG',
                       icon: Icons.menu_book_rounded,
@@ -203,24 +198,20 @@ class _HomePageState extends State<HomePage> {
                           ),
                         );
                       },
-                      subContent: RichText(
-                        textAlign: TextAlign.center,
-                        text: TextSpan(
-                          style: const TextStyle(fontSize: 14, color: Colors.white),
-                          children: [
-                            TextSpan(text: '${stats.totalVocab}('),
-                            TextSpan(
-                              text: '+${stats.addedVocab}',
-                              style: const TextStyle(
-                                color: Colors.greenAccent,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const TextSpan(text: ') từ'),
-                          ],
-                        ),
+                      subContent: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '${stats.totalInventoryVocab}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          MonthlyDiffBadge(diff: stats.inventoryMonthlyDiff),
+                          const Text(' từ', style: TextStyle(fontSize: 14)),
+                        ],
                       ),
                     ),
+
+                    // 2. TỪ VỰNG ĐANG HỌC
                     DashboardActionCard(
                       title: 'TỪ VỰNG ĐANG HỌC',
                       icon: Icons.edit_note_rounded,
@@ -232,21 +223,20 @@ class _HomePageState extends State<HomePage> {
                           ),
                         );
                       },
-                      subContent: RichText(
-                        textAlign: TextAlign.center,
-                        text: TextSpan(
-                          style: const TextStyle(fontSize: 14, color: Colors.white),
-                          children: [
-                            TextSpan(text: '${stats.learningVocab}('),
-                            TextSpan(
-                              text: '${stats.masterChange}',
-                              style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
-                            ),
-                            const TextSpan(text: ') từ'),
-                          ],
-                        ),
+                      subContent: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '${stats.totalLearningVocab}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          MonthlyDiffBadge(diff: stats.learningMonthlyDiff),
+                          const Text(' từ', style: TextStyle(fontSize: 14)),
+                        ],
                       ),
                     ),
+
+                    // 3. BẮT ĐẦU HỌC
                     DashboardActionCard(
                       title: 'BẮT ĐẦU HỌC',
                       icon: Icons.play_circle_fill_rounded,
@@ -257,6 +247,8 @@ class _HomePageState extends State<HomePage> {
                         textAlign: TextAlign.center,
                       ),
                     ),
+
+                    // 4. STREAK
                     DashboardActionCard(
                       title: 'STREAK',
                       icon: Icons.local_fire_department_rounded,
