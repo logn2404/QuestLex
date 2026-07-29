@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../inventory_vocab/presentation/inventory_page.dart';
+import 'package:questlex/features/inventory_vocab/presentation/inventory_page.dart';
 
 class LearningControlPanel extends StatelessWidget {
   final bool isSelectionMode;
@@ -37,11 +37,11 @@ class LearningControlPanel extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: () {
                       if (!isSelectionMode) {
-                        onToggleSelection(); // Bật chế độ chọn
+                        onToggleSelection();
                       } else if (selectedCount > 0) {
-                        onStartLearning(); // Bắt đầu học
+                        onStartLearning();
                       } else {
-                        onToggleSelection(); // Tắt chế độ chọn nếu chưa chọn từ nào
+                        onToggleSelection();
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -72,7 +72,6 @@ class LearningControlPanel extends StatelessWidget {
                   ),
                 ),
 
-                // Indicator Badge thể hiện số từ được chọn
                 if (isSelectionMode && selectedCount > 0)
                   Positioned(
                     top: -6,
@@ -103,7 +102,7 @@ class LearningControlPanel extends StatelessWidget {
             const Divider(),
             const SizedBox(height: 8),
 
-            // 2. DANH SÁCH NÚT MINI LIÊN KẾT (XẾP DỌC)
+            // 2. DANH SÁCH NÚT MINI LIÊN KẾT
             Text(
               'Lối tắt nhanh',
               style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),

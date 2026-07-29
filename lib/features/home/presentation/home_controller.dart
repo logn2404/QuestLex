@@ -105,7 +105,7 @@ class HomeController extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _stats = _repository.getDashboardStats();
+    _stats = await _repository.getDashboardStats();
 
     _isLoading = false;
     notifyListeners();

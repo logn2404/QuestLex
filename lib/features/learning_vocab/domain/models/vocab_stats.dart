@@ -1,17 +1,47 @@
 class VocabStats {
-  final int overallScore; // Điểm level/mastery (VD: 61)
-  final int starRating;   // Số sao (0 - 6)
   final Map<String, int> levelCounts;
-  final double currentExp; // Ví dụ: 65
-  final double maxExp;     // Ví dụ: 100
 
   const VocabStats({
-    required this.overallScore,
-    required this.starRating,
     required this.levelCounts,
-    this.currentExp = 65.0, // 👈 Đặt giá trị mặc định ở đây
-    this.maxExp = 100.0,    // 👈 Đặt giá trị mặc định ở đây
   });
 
-  double get expPercentage => (maxExp > 0) ? (currentExp / maxExp).clamp(0.0, 1.0) : 0.0;
+  // 1. Tính tổng EXP hiện tại dựa trên hệ số điểm của từng level
+  int get currentExp {
+    int total = 0;
+    total += (levelCounts['A1'] ?? 0) * 1;
+    total += (levelCounts['A2'] ?? 0) * 2;
+    total += (levelCounts['B1'] ?? 0) * 3;
+    total += (levelCounts['B2'] ?? 0) * 5;
+    total += (levelCounts['C1'] ?? 0) * 7;
+    total += (levelCounts['C2'] ?? 0) * 10;
+    return total;
+  }
+
+  // 2. Max EXP để đạt Level 100
+  int get maxExp => 35000;
+
+  // 3. Tính Level từ 1 -> 100
+  int get calculatedLevel {
+    if (maxExp == 0) return 1;
+    final level = ((currentExp / maxExp) * 100).floor();
+    return level.clamp(1, 100);
+  }
+
+  // 4. Tỷ lệ % hoàn thành Level 100
+  double get expPercentage {
+    if (maxExp == 0) return 0.0;
+    return (currentExp / maxExp).clamp(0.0, 1.0);
+  }
+
+  double get expProgressRatio => expPercentage;
+
+  // 5. Tính tổng số Sao (Thang điểm 6.0)
+  double get totalStars {
+    double stars = 0.0;
+    for (final level in ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']) {
+      final count = levelCounts[level] ?? 0;
+      stars += (count / 1000).clamp(0.0, 1.0);
+    }
+    return double.parse(stars.toStringAsFixed(2));
+  }
 }

@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
-import '../../learning_vocab/domain/models/vocab_stats.dart';
-import 'widgets/profile.dart';
+import 'package:provider/provider.dart';
+
+import 'package:questlex/features/learning_vocab/domain/models/vocab_stats.dart';
+import 'package:questlex/features/inventory_vocab/data/repositories/fake_inventory_vocab_repository.dart';
+import 'package:questlex/features/inventory_vocab/presentation/inventory_controller.dart';
+import 'package:questlex/features/inventory_vocab/presentation/widgets/inventory_control_panel.dart';
+import 'package:questlex/features/inventory_vocab/presentation/widgets/inventory_search_bar.dart';
+import 'package:questlex/features/inventory_vocab/presentation/widgets/profile.dart';
 
 class InventoryPage extends StatelessWidget {
   const InventoryPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Mock data tạm thời để giữ UI Profile
-    const dummyStats = VocabStats(
-      overallScore: 61,
-      starRating: 4,
-      currentExp: 65.0,
-      maxExp: 100.0,
-      levelCounts: {
+    final dummyStats = VocabStats(
+      levelCounts: const {
         'C2': 120,
         'C1': 450,
         'B2': 350,
@@ -23,25 +24,174 @@ class InventoryPage extends StatelessWidget {
       },
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Kho từ vựng đã thuộc', style: TextStyle(fontWeight: FontWeight.bold)),
+    return ChangeNotifierProvider(
+      create: (_) => InventoryController(
+        repository: FakeInventoryVocabRepository(),
       ),
-      body: const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Cột trái Profile (Đã lưu trữ an toàn)
-            Profile(stats: dummyStats),
-            SizedBox(width: 16),
-            // Phần danh sách từ đã thuộc sẽ phát triển sau ở đây
-            Expanded(
-              child: Center(
-                child: Text('Danh sách kho từ vựng (Inventory) sẽ làm sau ở đây'),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text(
+            'Kho từ vựng đã thuộc',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        body: Consumer<InventoryController>(
+          builder: (context, controller, child) {
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. CỘT TRÁI: Profile + Control Panel (Chứa Lối tắt nhanh về LearningPage)
+                  SizedBox(
+                    width: 260,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          Profile(stats: dummyStats),
+                          const SizedBox(height: 12),
+                          const InventoryControlPanel(), // 👈 Thêm Lối tắt chuyển hướng ở đây
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 16),
+
+                  // 2. CỘT PHẢI: Search Bar (Debounce) + Dropdown Sort + Grid Danh Sách Từ
+                  Expanded(
+                    child: Column(
+                      children: [
+                        InventorySearchBar(
+                          onSearchChanged: controller.onSearchChanged,
+                          currentSort: controller.selectedSort,
+                          onSortChanged: controller.setSortOption,
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        Expanded(
+                          child: controller.isLoading
+                              ? const Center(child: CircularProgressIndicator())
+                              : controller.vocabList.isEmpty
+                                  ? const Center(
+                                      child: Text(
+                                        'Không tìm thấy từ vựng nào!',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    )
+                                  : GridView.builder(
+                                      gridDelegate:
+                                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent: 260,
+                                        mainAxisExtent: 120,
+                                        crossAxisSpacing: 12,
+                                        mainAxisSpacing: 12,
+                                      ),
+                                      itemCount: controller.vocabList.length,
+                                      itemBuilder: (context, index) {
+                                        final item = controller.vocabList[index];
+                                        return Card(
+                                          elevation: 1,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            side: BorderSide(
+                                              color: Theme.of(context)
+                                                  .dividerColor
+                                                  .withValues(alpha: 0.1),
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(12),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        item.word,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 15,
+                                                        ),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.green.withValues(
+                                                          alpha: 0.15,
+                                                        ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(6),
+                                                      ),
+                                                      child: Text(
+                                                        item.cefrLevel,
+                                                        style: const TextStyle(
+                                                          color: Colors.green,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 11,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                Text(
+                                                  item.meaning,
+                                                  style: TextStyle(
+                                                    color: Theme.of(context)
+                                                        .hintColor,
+                                                    fontSize: 13,
+                                                  ),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const Row(
+                                                  children: [
+                                                    Icon(
+                                                      Icons.verified_rounded,
+                                                      color: Colors.green,
+                                                      size: 16,
+                                                    ),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      '100% Mastered',
+                                                      style: TextStyle(
+                                                        color: Colors.green,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
