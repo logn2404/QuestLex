@@ -1,4 +1,4 @@
-import 'dart:async'; // 👈 1. Thêm import dart:async để dùng Timer
+import 'dart:async'; // Import dart:async để dùng Timer
 import 'package:flutter/material.dart';
 import '../domain/models/daily_cefr_count.dart';
 import '../domain/models/learning_vocab_item.dart';
@@ -18,7 +18,7 @@ class LearningVocabController extends ChangeNotifier {
   String _searchQuery = '';
   bool _isLoading = false;
 
-  // 👈 2. Khai báo Timer cho Debounce
+  // Khai báo Timer cho Debounce
   Timer? _debounceTimer;
 
   List<LearningVocabItem> get vocabList => _filteredVocab;
@@ -52,6 +52,7 @@ class LearningVocabController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bật/Tắt chế độ chọn thủ công từ nút Bấm
   void toggleSelectionMode() {
     _isSelectionMode = !_isSelectionMode;
     if (!_isSelectionMode) {
@@ -60,16 +61,32 @@ class LearningVocabController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 🚀 CẬP NHẬT: Chọn/Bỏ chọn từ vựng với Auto-Reset & Auto-Enable UX
   void toggleSelectItem(String id) {
     if (_selectedItemIds.contains(id)) {
       _selectedItemIds.remove(id);
+
+      // 🎯 Auto reset chế độ chọn về ban đầu khi deselect từ cuối cùng
+      if (_selectedItemIds.isEmpty) {
+        _isSelectionMode = false;
+      }
     } else {
       _selectedItemIds.add(id);
+      
+      // 🎯 Auto bật chế độ chọn khi click chọn từ đầu tiên
+      _isSelectionMode = true;
     }
     notifyListeners();
   }
 
-  // 👈 3. Áp dụng Debounce 300ms cho hàm search
+  /// 🚀 CẬP NHẬT: Xóa toàn bộ lựa chọn & Reset mode
+  void clearAllSelection() {
+    _selectedItemIds.clear();
+    _isSelectionMode = false;
+    notifyListeners();
+  }
+
+  /// Áp dụng Debounce 300ms cho hàm search
   void search(String query) {
     _debounceTimer?.cancel(); // Hủy timer cũ nếu người dùng còn đang gõ
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
@@ -91,7 +108,7 @@ class LearningVocabController extends ChangeNotifier {
     }
   }
 
-  // 👈 4. Hủy Timer khi Controller bị hủy để tránh leak bộ nhớ
+  // Hủy Timer khi Controller bị hủy để tránh leak bộ nhớ
   @override
   void dispose() {
     _debounceTimer?.cancel();

@@ -1,67 +1,15 @@
-import 'dart:async';
-import 'dart:ffi';
 import 'dart:io';
-//import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
-import 'package:win32/win32.dart';
 
 import '../../../services/game_timer_service.dart';
 import '../../../services/screen_capture_service.dart';
 import '../domain/models/dashboard_stats.dart';
 import '../domain/repositories/dashboard_repository.dart';
+import '../services/capture_trigger_manager.dart';
+import '../services/win32_mouse_hook_service.dart';
 import 'trigger_config_controller.dart';
 
-// --- NATIVE HOOK GLOBAL VARIABLES ---
-int _hMouseHook = 0;
-HomeController? _activeControllerInstance;
-
-// Biến lưu mốc thời gian click cuối cùng để chống Spam (Cooldown 500ms an toàn)
-DateTime? _lastClickTime;
-const Duration _clickCooldown = Duration(milliseconds: 500);
-
-/// Low-Level Mouse Hook Callback từ Windows (C++ Native Level)
-/// 🛡️ Đã bọc Future.microtask để trả về kết quả cho Windows lập tức, tránh nghẽn thread gây crash
-int _mouseProc(int nCode, int wParam, int lParam) {
-  try {
-    if (nCode >= 0 && _activeControllerInstance != null) {
-      if (_activeControllerInstance!.isScanningActive) {
-        
-        // 1. WM_LBUTTONDOWN (0x0201) - Click chuột trái
-        if (wParam == WM_LBUTTONDOWN) {
-          final now = DateTime.now();
-          if (_lastClickTime == null || now.difference(_lastClickTime!) >= _clickCooldown) {
-            _lastClickTime = now;
-
-            // ⚡ Đẩy xử lý sang Dart Event Loop, giải phóng Windows Thread ngay!
-            Future.microtask(() {
-              _activeControllerInstance?.onGlobalMouseClick();
-            });
-          }
-        } 
-        // 2. WM_MOUSEWHEEL (0x020A) - Lăn chuột (Scroll Y-axis)
-        else if (wParam == WM_MOUSEWHEEL) {
-          final mouseStruct = Pointer<MSLLHOOKSTRUCT>.fromAddress(lParam).ref;
-          int mouseData = mouseStruct.mouseData;
-          int wheelDelta = (mouseData >> 16) & 0xFFFF;
-          if (wheelDelta >= 0x8000) {
-            wheelDelta -= 0x10000; // Xử lý số âm khi cuộn xuống
-          }
-          final delta = wheelDelta.toDouble();
-
-          // ⚡ Đẩy xử lý sang Dart Event Loop
-          Future.microtask(() {
-            _activeControllerInstance?.onGlobalMouseScroll(delta);
-          });
-        }
-      }
-    }
-  } catch (e) {
-    debugPrint('⚠️ [MouseProc Safe Catch]: $e');
-  }
-
-  // Luôn trả về CallNextHookEx nhanh nhất có thể cho Windows
-  return CallNextHookEx(_hMouseHook, nCode, wParam, lParam);
-}
+const int MaxCaptureFiles = 10; // Giới hạn số tấm ảnh lưu trữ trong bộ nhớ đệm
 
 class HomeController extends ChangeNotifier {
   final DashboardRepository _repository;
@@ -69,26 +17,34 @@ class HomeController extends ChangeNotifier {
   final ScreenCaptureService _captureService = ScreenCaptureService();
   final TriggerConfigController triggerConfigController;
 
-  // Cấu hình linh hoạt cho 3 Triggers
-  CaptureConfig get config => triggerConfigController.config;
+  final Win32MouseHookService _hookService = Win32MouseHookService();
+  late final CaptureTriggerManager _triggerManager;
 
   // Trạng thái Dashboard UI
   DashboardStats? _stats;
   bool _isLoading = false;
   bool _isScanningActive = false;
-
-  // Bộ đếm trạng thái chụp
-  Timer? _autoTimer;
-  int _currentClickCount = 0;
-  double _accumulatedScrollDelta = 0.0;
   bool _isCapturingNow = false;
+  bool _isDisposed = false;
 
   HomeController({
-    required this._repository,
+    required DashboardRepository repository,
     required GameTimerService timerService,
     TriggerConfigController? triggerConfigController,
-  })  : _timerService = timerService,
+  })  : _repository = repository,
+        _timerService = timerService,
         triggerConfigController = triggerConfigController ?? TriggerConfigController() {
+    
+    // Khởi tạo Trigger Manager
+    _triggerManager = CaptureTriggerManager(
+      triggerConfigController: this.triggerConfigController,
+      onTriggerCapture: _triggerCapture,
+    );
+
+    // Bind event từ Win32 Hook sang Trigger Manager
+    _hookService.onClick = _triggerManager.handleMouseClick;
+    _hookService.onScroll = _triggerManager.handleMouseScroll;
+
     this.triggerConfigController.addListener(_handleTriggerConfigChanged);
     loadStats();
   }
@@ -100,18 +56,46 @@ class HomeController extends ChangeNotifier {
   DashboardStats? get stats => _stats;
   bool get isLoading => _isLoading;
 
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
+  }
+
   // --- TẢI DỮ LIỆU THỐNG KÊ ---
   Future<void> loadStats() async {
     _isLoading = true;
-    notifyListeners();
+    Future.microtask(notifyListeners);
 
-    _stats = await _repository.getDashboardStats();
+    try {
+      _stats = await _repository.getDashboardStats();
+    } catch (e) {
+      debugPrint('❌ [Load Stats Error]: $e');
+      _stats = null;
+    } finally {
+      _isLoading = false;
+      Future.microtask(notifyListeners);
+    }
+  }
 
-    _isLoading = false;
+  // --- KHỞI CHẠY / DỪNG QUÉT ---
+  void toggleScanning(bool active) {
+    _isScanningActive = active;
+    _hookService.isActive = active;
+
+    if (active) {
+      _timerService.start();
+      _triggerManager.resetCycles(true);
+      _hookService.start();
+    } else {
+      _timerService.stop();
+      _triggerManager.stop();
+      _hookService.stop();
+    }
     notifyListeners();
   }
 
-  // --- CẬP NHẬT CẤU HÌNH TRIGGER TỪ UI SETTINGS ---
+  // --- CẬP NHẬT CẤU HÌNH TRIGGER ---
   void updateConfig({
     bool? enableTimer,
     int? timerIntervalMs,
@@ -129,140 +113,91 @@ class HomeController extends ChangeNotifier {
       scrollThreshold: scrollThreshold,
     );
 
-    // Reset lại chu kỳ đếm nếu tính năng quét đang bật
     if (_isScanningActive) {
-      _resetAllCycles();
+      _triggerManager.resetCycles(true);
     }
     notifyListeners();
   }
 
   void _handleTriggerConfigChanged() {
     if (_isScanningActive) {
-      _resetAllCycles();
+      _triggerManager.resetCycles(true);
     }
     notifyListeners();
   }
 
-  // --- 1. KHỞI CHẠY / DỪNG QUÉT ---
-  void toggleScanning(bool active) {
-    _isScanningActive = active;
-    if (active) {
-      _timerService.start();
-      _startTriggers();
-    } else {
-      _timerService.stop();
-      _stopTriggers();
-    }
-    notifyListeners();
-  }
-
-  void _startTriggers() {
-    _resetAllCycles();
-    _initGlobalMouseHooks();
-  }
-
-  void _stopTriggers() {
-    _autoTimer?.cancel();
-    _autoTimer = null;
-    _removeGlobalMouseHooks();
-  }
-
-  // --- 2. ĐĂNG KÝ MOUSE HOOK (WINDOWS NATIVE) ---
-  void _initGlobalMouseHooks() {
-    if (!Platform.isWindows) return;
-
+  // --- HÀM GIỚI HẠN DỌN DẸP CACHE (TỐI ĐA 10 TẤM) ---
+  Future<void> _cleanOldCaptures(String latestFilePath, {int maxFiles = 10}) async {
     try {
-      _activeControllerInstance = this;
-      if (_hMouseHook == 0) {
-        final mouseProcPointer = Pointer.fromFunction<HOOKPROC>(_mouseProc, 0);
-        _hMouseHook = SetWindowsHookEx(
-          WH_MOUSE_LL,
-          mouseProcPointer,
-          GetModuleHandle(nullptr),
-          0,
-        );
+      final file = File(latestFilePath);
+      final directory = file.parent;
+
+      if (!await directory.exists()) return;
+
+      // Lấy toàn bộ file .png trong thư mục capture
+      List<FileSystemEntity> files = directory
+          .listSync()
+          .where((entity) => entity is File && entity.path.endsWith('.png'))
+          .toList();
+
+      // Nếu số file vượt quá giới hạn (10 tấm)
+      if (files.length > maxFiles) {
+        // Sắp xếp file theo thời gian chỉnh sửa (Cũ nhất lên đầu)
+        files.sort((a, b) => a.statSync().modified.compareTo(b.statSync().modified));
+
+        int filesToDelete = files.length - maxFiles;
+
+        for (int i = 0; i < filesToDelete; i++) {
+          await files[i].delete();
+          debugPrint('🗑️ [Cache Manager]: Đã xóa ảnh cũ vượt giới hạn: ${files[i].path}');
+        }
       }
-      debugPrint('🖱️ [Native Win32 Hook]: Đã kích hoạt Hook chuột thành công.');
     } catch (e) {
-      debugPrint('❌ [Mouse Hook Error]: $e');
+      debugPrint('⚠️ [Clean Captures Error]: $e');
     }
   }
 
-  void _removeGlobalMouseHooks() {
-    if (!Platform.isWindows) return;
-    try {
-      if (_hMouseHook != 0) {
-        UnhookWindowsHookEx(_hMouseHook);
-        _hMouseHook = 0;
-      }
-      _activeControllerInstance = null;
-      debugPrint('🛑 [Native Win32 Hook]: Đã gỡ bỏ Hook chuột.');
-    } catch (e) {
-      debugPrint('❌ [Mouse Hook Stop Error]: $e');
-    }
-  }
-
-  // --- 3. CALLBACK HANDLERS SỰ KIỆN CHUỘT ---
-  void onGlobalMouseClick() {
-    if (!config.enableClick || !_isScanningActive || _isCapturingNow) return;
-
-    _currentClickCount++;
-    debugPrint('🖱️ Global Click: $_currentClickCount/${config.clickThreshold}');
-
-    if (_currentClickCount >= config.clickThreshold) {
-      _triggerCapture('Mouse Click ($_currentClickCount lần)');
-    }
-  }
-
-  void onGlobalMouseScroll(double deltaY) {
-    if (!config.enableScroll || !_isScanningActive || _isCapturingNow) return;
-
-    _accumulatedScrollDelta += deltaY.abs();
-    debugPrint('📜 Scroll Y Delta: ${_accumulatedScrollDelta.toStringAsFixed(0)}/${config.scrollThreshold}');
-
-    if (_accumulatedScrollDelta >= config.scrollThreshold) {
-      _triggerCapture('Mouse Scroll (${_accumulatedScrollDelta.toStringAsFixed(0)} px)');
-    }
-  }
-
-  // --- 4. CORE TRIGGER CAPTURE & RESET ---
+  // --- CORE CAPTURE ---
   Future<void> _triggerCapture(String triggerSource) async {
     if (!_isScanningActive || _isCapturingNow) return;
 
     _isCapturingNow = true;
+    _hookService.isBusy = true; // Bận chụp -> Tạm khóa nhận hook
+
     debugPrint('🚀 [TRIGGER] Kích hoạt chụp từ: $triggerSource');
 
     try {
-      String? path = await _captureService.captureEntireScreen();
+      String? path = await _captureService
+          .captureEntireScreen()
+          .timeout(const Duration(seconds: 3), onTimeout: () {
+        debugPrint('⚠️ [Capture Timeout]: Quá 3 giây không nhận phản hồi.');
+        return null;
+      });
+
       if (path != null) {
         debugPrint('📸 [Chụp thành công]: $path');
-        // TODO: Sẽ gửi 'path' này cho Model ONNX nhận diện chữ ở bước tiếp theo
+        
+        // 🛡️ DỌN DẸP BỘ NHỚ ĐỆM: Giữ tối đa 10 tấm ảnh mới nhất
+        await _cleanOldCaptures(path, maxFiles: MaxCaptureFiles);
+
+        // TODO: Gửi 'path' này cho Model AI ONNX xử lý
+        // await _aiService.processImage(path);
       }
     } catch (e, stackTrace) {
       debugPrint('❌ [Lỗi chụp]: $e\n$stackTrace');
     } finally {
       _isCapturingNow = false;
-      _resetAllCycles(); // 🔄 Reset chu kỳ chụp ngay sau khi chụp xong
+      _hookService.isBusy = false; // Mở lại hook
+      _triggerManager.resetCycles(_isScanningActive); // Tạo Timer chu kỳ mới
     }
-  }
-
-  /// Reset lại toàn bộ Timer, bộ đếm Click và Scroll
-  void _resetAllCycles() {
-    _autoTimer?.cancel();
-    if (config.enableTimer && _isScanningActive) {
-      _autoTimer = Timer(Duration(milliseconds: config.timerIntervalMs), () {
-        _triggerCapture('Timer (${config.timerIntervalMs}ms)');
-      });
-    }
-
-    _currentClickCount = 0;
-    _accumulatedScrollDelta = 0.0;
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
     triggerConfigController.removeListener(_handleTriggerConfigChanged);
-    _stopTriggers();
+    _triggerManager.stop();
+    _hookService.stop();
     triggerConfigController.dispose();
     _timerService.dispose();
     super.dispose();

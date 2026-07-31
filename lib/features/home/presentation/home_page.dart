@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:questlex/features/learning_vocab/presentation/learning_page.dart';
-import 'package:questlex/features/inventory_vocab/presentation/inventory_page.dart';
 import 'package:questlex/features/home/data/repositories/fake_dashboard_repository.dart';
 import 'package:questlex/features/home/presentation/home_controller.dart';
 import 'package:questlex/features/home/presentation/trigger_config_controller.dart';
 import 'package:questlex/features/home/presentation/widgets/monthly_diff_badge.dart';
+
+import 'package:questlex/features/navigation/domain/app_screen.dart';
+import 'package:questlex/features/navigation/presentation/controllers/navigation_controller.dart';
 
 import 'package:questlex/screens/widgets/ai_scan_toggle_card.dart';
 import 'package:questlex/screens/widgets/dashboard_action_card.dart';
@@ -44,9 +45,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _handleControllerChange() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (!mounted) return;
+    setState(() {});
   }
 
   void _openTriggerSettings() {
@@ -65,6 +65,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // 🎯 DIALOG THÔNG BÁO QUYỀN RIÊNG TƯ & TỰ ĐỘNG TẮT SCANNING
   Future<bool> _showPrivacyWarningDialog(BuildContext context) async {
     return await showDialog<bool>(
           context: context,
@@ -76,7 +77,7 @@ class _HomePageState extends State<HomePage> {
               ),
               title: const Row(
                 children: [
-                  Icon(Icons.privacy_tip_outlined, color: Colors.amber, size: 28),
+                  Icon(Icons.security_rounded, color: Colors.amber, size: 28),
                   SizedBox(width: 10),
                   Text(
                     'Cảnh báo quyền riêng tư',
@@ -84,9 +85,32 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ],
               ),
-              content: const Text(
-                'Chương trình sẽ bắt đầu chụp và phân tích mọi hoạt động trên màn hình máy tính của bạn để hỗ trợ quét từ vựng.',
-                style: TextStyle(fontSize: 14, height: 1.4),
+              content: const Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Chương trình sẽ bắt đầu chụp và phân tích màn hình máy tính của bạn để quét từ vựng tự động.',
+                    style: TextStyle(fontSize: 14, height: 1.4),
+                  ),
+                  SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 16, color: Colors.amber),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Để bảo vệ riêng tư, tính năng sẽ tự động TẮT khi bạn dùng các tính năng khác Trang Chủ.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.amber,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
               actions: [
                 TextButton(
@@ -103,7 +127,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Đồng ý'),
+                  child: const Text('Đồng ý & Bắt đầu'),
                 ),
               ],
             );
@@ -128,9 +152,18 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // 🎯 HÀM DISPOSE AN TOÀN - CHỐNG CRASH "ElementLifecycle.defunct"
   @override
   void dispose() {
+    // 1. 🧹 BẮT BUỘC gỡ listener ĐẦU TIÊN để chặn setState khi state unmounted
     _controller.removeListener(_handleControllerChange);
+
+    // 2. 🎯 Tắt scanning an toàn (notifyListeners của controller sẽ không bắn trúng setState nữa)
+    if (_controller.isScanningActive) {
+      _controller.toggleScanning(false);
+    }
+
+    // 3. 🧹 Dispose controller
     _controller.dispose();
     super.dispose();
   }
@@ -191,12 +224,7 @@ class _HomePageState extends State<HomePage> {
                       title: 'KHO TỪ VỰNG',
                       icon: Icons.menu_book_rounded,
                       onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const InventoryPage(),
-                          ),
-                        );
+                        context.read<NavigationController>().navigateTo(AppScreen.inventory);
                       },
                       subContent: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -216,12 +244,7 @@ class _HomePageState extends State<HomePage> {
                       title: 'TỪ VỰNG ĐANG HỌC',
                       icon: Icons.edit_note_rounded,
                       onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const LearningPage(),
-                          ),
-                        );
+                        context.read<NavigationController>().navigateTo(AppScreen.learning);
                       },
                       subContent: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -240,7 +263,9 @@ class _HomePageState extends State<HomePage> {
                     DashboardActionCard(
                       title: 'BẮT ĐẦU HỌC',
                       icon: Icons.play_circle_fill_rounded,
-                      onTap: () {},
+                      onTap: () {
+                        context.read<NavigationController>().navigateTo(AppScreen.learning);
+                      },
                       subContent: Text(
                         '${stats.pendingVocab} từ đang chờ',
                         style: const TextStyle(color: Colors.grey, fontSize: 13),
@@ -252,7 +277,9 @@ class _HomePageState extends State<HomePage> {
                     DashboardActionCard(
                       title: 'STREAK',
                       icon: Icons.local_fire_department_rounded,
-                      onTap: () {},
+                      onTap: () {
+                        context.read<NavigationController>().navigateTo(AppScreen.streak);
+                      },
                       subContent: Column(
                         children: [
                           const Text(

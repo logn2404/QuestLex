@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:questlex/features/learning_vocab/presentation/learning_page.dart';
+import 'package:provider/provider.dart';
+
+import 'package:questlex/features/navigation/domain/app_screen.dart';
+import 'package:questlex/features/navigation/presentation/controllers/navigation_controller.dart';
 
 class InventoryControlPanel extends StatelessWidget {
   const InventoryControlPanel({super.key});
@@ -29,36 +32,29 @@ class InventoryControlPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
 
-            // Nút chuyển ngược lại từ Inventory -> Learning Page
+            // 1. Nút chuyển từ Inventory -> Learning Page (Smart Re-order Navigation)
             _buildMiniMenuButton(
               context,
               icon: Icons.school_outlined,
               label: 'Từ vựng đang học',
               onTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const LearningPage(),
-                  ),
-                );
+                context.read<NavigationController>().navigateTo(AppScreen.learning);
               },
             ),
             const SizedBox(height: 6),
 
+            // 2. Nút chuyển sang Streak
             _buildMiniMenuButton(
               context,
               icon: Icons.local_fire_department_rounded,
               label: 'Chuỗi ngày học (Streak)',
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Tính năng Chuỗi ngày học (Streak) đang phát triển!'),
-                  ),
-                );
+                context.read<NavigationController>().navigateTo(AppScreen.streak);
               },
             ),
             const SizedBox(height: 6),
 
+            // 3. Nút N/A
             _buildMiniMenuButton(
               context,
               icon: Icons.more_horiz_rounded,
@@ -85,24 +81,19 @@ class InventoryControlPanel extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
         child: Row(
           children: [
-            // Icon Xanh lá sáng
             Icon(icon, size: 18, color: Colors.greenAccent),
             const SizedBox(width: 10),
-            
-            // Text Trắng nổi bật
             Expanded(
               child: Text(
                 label,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white, // Chữ trắng
+                  color: Colors.white,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            
-            // Mũi tên xanh nhạt
             Icon(Icons.chevron_right_rounded, size: 16, color: Colors.green.withValues(alpha: 0.6)),
           ],
         ),
