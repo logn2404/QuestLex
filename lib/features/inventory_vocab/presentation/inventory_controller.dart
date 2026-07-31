@@ -27,8 +27,7 @@ class InventoryController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   SortOption get selectedSort => _selectedSort;
 
-  InventoryController({required InventoryVocabRepository repository})
-      : _repository = repository {
+  InventoryController({required this._repository}) {
     loadData();
   }
 

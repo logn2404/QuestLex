@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
-import 'features/home/presentation/home_page.dart';
+import 'package:provider/provider.dart';
+
+// Import Navigation Features
+import 'features/navigation/domain/app_screen.dart';
+import 'features/navigation/presentation/controllers/navigation_controller.dart';
+import 'features/navigation/presentation/pages/main_shell_page.dart';
 
 void main() {
   runApp(const QuestLexApp());
@@ -10,13 +15,20 @@ class QuestLexApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'QuestLex',
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF121212),
+    return MultiProvider(
+      providers: [
+        // 🛡️ Bọc NavigationController ở cấp gốc cao nhất của App
+        ChangeNotifierProvider(create: (_) => NavigationController()),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'QuestLex',
+        theme: ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: const Color(0xFF121212),
+        ),
+        // 🛡️ Dùng MainShellPage làm khung chứa thay vì gọi HomePage trực tiếp
+        home: const MainShellPage(),
       ),
-      home: const HomePage(),
     );
   }
 }
