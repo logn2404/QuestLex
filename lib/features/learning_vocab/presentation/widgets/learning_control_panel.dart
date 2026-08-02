@@ -27,7 +27,7 @@ class LearningControlPanel extends StatelessWidget {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.purple.withValues(alpha: 0.2)),
+        side: BorderSide(color: const Color(0xFFD0BCFF).withValues(alpha: 0.3)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -133,20 +133,22 @@ class LearningControlPanel extends StatelessWidget {
               child: Divider(height: 1, color: Colors.white12),
             ),
 
-            // 🚀 3. LỐI TẮT NHANH (NAVIGATION - Smart Re-order)
+            // 🚀 3. LỐI TẮT NHANH (NAVIGATION SỐNG ĐỘNG RỰC RỠ)
             Text(
               'Lối tắt nhanh',
               style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.purpleAccent.withValues(alpha: 0.8),
+                color: const Color(0xFFD0BCFF),
                 fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
             // Nút chuyển sang Kho từ vựng đã thuộc
             _buildMiniMenuButton(
               context,
-              icon: Icons.inventory_2_outlined,
+              icon: Icons.menu_book_rounded,
+              iconColor: Colors.tealAccent, // Icon Xanh ngọc
               label: 'Kho từ vựng đã thuộc',
               onTap: () {
                 context.read<NavigationController>().navigateTo(AppScreen.inventory);
@@ -158,6 +160,7 @@ class LearningControlPanel extends StatelessWidget {
             _buildMiniMenuButton(
               context,
               icon: Icons.local_fire_department_rounded,
+              iconColor: Colors.orangeAccent, // Icon Cam lửa
               label: 'Chuỗi ngày học (Streak)',
               onTap: () {
                 context.read<NavigationController>().navigateTo(AppScreen.streak);
@@ -165,12 +168,15 @@ class LearningControlPanel extends StatelessWidget {
             ),
             const SizedBox(height: 6),
 
-            // Nút N/A
+            // Nút chuyển về Trang chủ (Dashboard)
             _buildMiniMenuButton(
               context,
-              icon: Icons.more_horiz_rounded,
-              label: 'N/A',
-              onTap: () {},
+              icon: Icons.dashboard_rounded,
+              iconColor: Colors.lightBlueAccent, // Icon Xanh dương
+              label: 'Trang chủ (Dashboard)',
+              onTap: () {
+                context.read<NavigationController>().navigateTo(AppScreen.home);
+              },
             ),
           ],
         ),
@@ -181,19 +187,28 @@ class LearningControlPanel extends StatelessWidget {
   Widget _buildMiniMenuButton(
     BuildContext context, {
     required IconData icon,
+    required Color iconColor,
     required String label,
     required VoidCallback onTap,
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      hoverColor: Colors.purple.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(10),
+      hoverColor: iconColor.withValues(alpha: 0.12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 6.0),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: Colors.purpleAccent),
-            const SizedBox(width: 10),
+            // Ô vuông bọc Icon sống động
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: iconColor),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 label,
@@ -205,7 +220,11 @@ class LearningControlPanel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            Icon(Icons.chevron_right_rounded, size: 16, color: Colors.purple.withValues(alpha: 0.6)),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
           ],
         ),
       ),

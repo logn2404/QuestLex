@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-class DashboardActionCard extends StatelessWidget {
+class HomeDashboardActionCard extends StatelessWidget {
   final String title;
-  final IconData icon; // 🛡️ Giữ icon bắt buộc để tương thích code cũ
-  final Widget? customIcon; // ⚔️ CustomIcon ghi đè nếu được truyền vào
+  final IconData icon; // 🛡️ Giữ icon để thỏa mãn compiler
+  final Widget? customIcon; // ⚔️ CustomIcon (Kiếm & Khiên, v.v.) đè lên nếu truyền vào
   final VoidCallback onTap;
   final Widget subContent;
 
-  const DashboardActionCard({
+  const HomeDashboardActionCard({
     super.key,
     required this.title,
     required this.icon,
@@ -37,7 +37,7 @@ class DashboardActionCard extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // 🎯 Nếu có customIcon thì render customIcon đè lên, ngược lại dùng Icon mặc định
+              // 🎯 Stack ghi đè customIcon nếu có
               Stack(
                 alignment: Alignment.center,
                 children: [

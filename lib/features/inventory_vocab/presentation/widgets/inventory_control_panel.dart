@@ -11,31 +11,39 @@ class InventoryControlPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // 🎨 Định nghĩa hằng số màu Emerald chuẩn xịn
+    const emeraldColor = Color(0xFF10B981);
+    const emeraldAccentColor = Color(0xFF34D399);
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.green.withValues(alpha: 0.2)), // Viền xanh lá nhẹ cho Card
+        // ✅ ĐÃ FIX: Thay Colors.emerald bằng emeraldColor
+        side: BorderSide(color: emeraldColor.withValues(alpha: 0.3)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // DANH SÁCH NÚT MINI LIÊN KẾT (XẾP DỌC)
+            // TIÊU ĐỀ SECTION
             Text(
               'Lối tắt nhanh',
               style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.greenAccent.withValues(alpha: 0.8), // Tiêu đề xanh lá mạ
+                // ✅ ĐÃ FIX: Thay Colors.emeraldAccent bằng emeraldAccentColor
+                color: emeraldAccentColor,
                 fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
-            // 1. Nút chuyển từ Inventory -> Learning Page (Smart Re-order Navigation)
+            // 1. Nút chuyển từ Inventory -> Learning Page
             _buildMiniMenuButton(
               context,
               icon: Icons.school_outlined,
+              iconColor: Colors.purpleAccent,
               label: 'Từ vựng đang học',
               onTap: () {
                 context.read<NavigationController>().navigateTo(AppScreen.learning);
@@ -47,6 +55,7 @@ class InventoryControlPanel extends StatelessWidget {
             _buildMiniMenuButton(
               context,
               icon: Icons.local_fire_department_rounded,
+              iconColor: Colors.orangeAccent,
               label: 'Chuỗi ngày học (Streak)',
               onTap: () {
                 context.read<NavigationController>().navigateTo(AppScreen.streak);
@@ -54,12 +63,15 @@ class InventoryControlPanel extends StatelessWidget {
             ),
             const SizedBox(height: 6),
 
-            // 3. Nút N/A
+            // 3. Nút quay về Trang chủ (Dashboard)
             _buildMiniMenuButton(
               context,
-              icon: Icons.more_horiz_rounded,
-              label: 'N/A',
-              onTap: () {},
+              icon: Icons.dashboard_rounded,
+              iconColor: Colors.lightBlueAccent,
+              label: 'Trang chủ (Dashboard)',
+              onTap: () {
+                context.read<NavigationController>().navigateTo(AppScreen.home);
+              },
             ),
           ],
         ),
@@ -70,19 +82,27 @@ class InventoryControlPanel extends StatelessWidget {
   Widget _buildMiniMenuButton(
     BuildContext context, {
     required IconData icon,
+    required Color iconColor,
     required String label,
     required VoidCallback onTap,
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      hoverColor: Colors.green.withValues(alpha: 0.1), // Hiệu ứng rê chuột xanh lá
+      borderRadius: BorderRadius.circular(10),
+      hoverColor: iconColor.withValues(alpha: 0.12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 6.0),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: Colors.greenAccent),
-            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: iconColor),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 label,
@@ -94,7 +114,11 @@ class InventoryControlPanel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            Icon(Icons.chevron_right_rounded, size: 16, color: Colors.green.withValues(alpha: 0.6)),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
           ],
         ),
       ),

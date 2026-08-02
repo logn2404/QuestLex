@@ -6,14 +6,19 @@ import 'package:questlex/features/home/presentation/home_controller.dart';
 import 'package:questlex/features/home/presentation/trigger_config_controller.dart';
 import 'package:questlex/features/home/presentation/widgets/monthly_diff_badge.dart';
 
+// 🎯 Widget Action Card riêng cho Home Page
+import 'package:questlex/features/home/presentation/widgets/home_dashboard_action_card.dart';
+
 import 'package:questlex/features/navigation/domain/app_screen.dart';
 import 'package:questlex/features/navigation/presentation/controllers/navigation_controller.dart';
 
 import 'package:questlex/screens/widgets/ai_scan_toggle_card.dart';
-import 'package:questlex/screens/widgets/dashboard_action_card.dart';
 import 'package:questlex/screens/widgets/scan_timer_card.dart';
 import 'package:questlex/screens/widgets/trigger_settings_bottom_sheet.dart';
 import 'package:questlex/services/game_timer_service.dart';
+
+// ⚔️ Import CustomIcon (Đảm bảo đúng đường dẫn file custom_icon.dart của bạn)
+import 'package:questlex/custom_icon.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -152,18 +157,14 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // 🎯 HÀM DISPOSE AN TOÀN - CHỐNG CRASH "ElementLifecycle.defunct"
   @override
   void dispose() {
-    // 1. 🧹 BẮT BUỘC gỡ listener ĐẦU TIÊN để chặn setState khi state unmounted
     _controller.removeListener(_handleControllerChange);
 
-    // 2. 🎯 Tắt scanning an toàn (notifyListeners của controller sẽ không bắn trúng setState nữa)
     if (_controller.isScanningActive) {
       _controller.toggleScanning(false);
     }
 
-    // 3. 🧹 Dispose controller
     _controller.dispose();
     super.dispose();
   }
@@ -199,13 +200,13 @@ class _HomePageState extends State<HomePage> {
               isExceeding3Hours: _controller.isExceeding3Hours,
             ),
             const SizedBox(height: 12),
-            
+
             AiScanToggleCard(
               isScanningActive: _controller.isScanningActive,
               onChanged: _onToggleScanning,
               onOpenSettings: _openTriggerSettings,
             ),
-            
+
             const SizedBox(height: 24),
             LayoutBuilder(
               builder: (context, constraints) {
@@ -219,10 +220,15 @@ class _HomePageState extends State<HomePage> {
                   mainAxisSpacing: 12,
                   childAspectRatio: 1.1,
                   children: [
-                    // 1. KHO TỪ VỰNG
-                    DashboardActionCard(
+                    // 1. KHO TỪ VỰNG (THEME XANH LÁ INVENTORY)
+                    HomeDashboardActionCard(
                       title: 'KHO TỪ VỰNG',
                       icon: Icons.menu_book_rounded,
+                      customIcon: const Icon(
+                        Icons.menu_book_rounded,
+                        size: 32,
+                        color: Color(0xFF10B981), // 🟢 Xanh lá Emerald
+                      ),
                       onTap: () {
                         context.read<NavigationController>().navigateTo(AppScreen.inventory);
                       },
@@ -239,10 +245,15 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
 
-                    // 2. TỪ VỰNG ĐANG HỌC
-                    DashboardActionCard(
+                    // 2. TỪ VỰNG ĐANG HỌC (THEME XANH DƯƠNG LEARNING)
+                    HomeDashboardActionCard(
                       title: 'TỪ VỰNG ĐANG HỌC',
                       icon: Icons.edit_note_rounded,
+                      customIcon: const Icon(
+                        Icons.edit_note_rounded,
+                        size: 32,
+                        color: Color(0xFF3B82F6), // 🔵 Xanh dương Học tập
+                      ),
                       onTap: () {
                         context.read<NavigationController>().navigateTo(AppScreen.learning);
                       },
@@ -259,24 +270,30 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
 
-                    // 3. BẮT ĐẦU HỌC
-                    DashboardActionCard(
-                      title: 'BẮT ĐẦU HỌC',
-                      icon: Icons.play_circle_fill_rounded,
-                      onTap: () {
-                        context.read<NavigationController>().navigateTo(AppScreen.learning);
-                      },
-                      subContent: Text(
-                        '${stats.pendingVocab} từ đang chờ',
-                        style: const TextStyle(color: Colors.grey, fontSize: 13),
-                        textAlign: TextAlign.center,
+                    HomeDashboardActionCard(
+                        title: 'BẮT ĐẦU HỌC',
+                        icon: Icons.style,
+                        customIcon: CustomIcon.swordShield(size: 32),
+                        onTap: () {
+                          // 🎯 Sửa chỗ này: Navigate sang AppScreen.study
+                          context.read<NavigationController>().navigateTo(AppScreen.study);
+                        },
+                        subContent: Text(
+                          '${stats.pendingVocab} từ đang chờ',
+                          style: const TextStyle(color: Colors.grey, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
-                    ),
 
-                    // 4. STREAK
-                    DashboardActionCard(
+                    // 4. STREAK (THEME CAM LỬA)
+                    HomeDashboardActionCard(
                       title: 'STREAK',
                       icon: Icons.local_fire_department_rounded,
+                      customIcon: const Icon(
+                        Icons.local_fire_department_rounded,
+                        size: 32,
+                        color: Colors.orangeAccent, // 🟠 Cam Lửa
+                      ),
                       onTap: () {
                         context.read<NavigationController>().navigateTo(AppScreen.streak);
                       },
