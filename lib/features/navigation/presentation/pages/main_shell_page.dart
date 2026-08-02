@@ -4,6 +4,9 @@ import 'package:provider/provider.dart';
 import '../../../home/presentation/home_page.dart';
 import '../../../inventory_vocab/presentation/inventory_page.dart';
 import '../../../learning_vocab/presentation/learning_page.dart';
+import '../../../streak/presentation/streak_page.dart';
+// 🎯 Import StudyPage từ feature study mới
+import '../../../study/presentation/pages/study_page.dart';
 
 import '../../domain/app_screen.dart';
 import '../controllers/navigation_controller.dart';
@@ -83,63 +86,12 @@ class MainShellPage extends StatelessWidget {
       case AppScreen.learning:
         return const LearningPage(key: ValueKey(AppScreen.learning));
 
-      case AppScreen.streak:
-        return _buildStreakComingSoon(context);
-    }
-  }
+      case AppScreen.study:
+        // 🎯 ĐÃ BỔ SUNG TRANG RÈN LUYỆN STUDY PAGE
+        return const StudyPage(key: ValueKey(AppScreen.study));
 
-  Widget _buildStreakComingSoon(BuildContext context) {
-    return Center(
-      key: const ValueKey(AppScreen.streak),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.local_fire_department_rounded,
-            size: 90,
-            color: Colors.orangeAccent.withValues(alpha: 0.8),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.orangeAccent.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.orangeAccent.withValues(alpha: 0.4),
-              ),
-            ),
-            child: const Text(
-              'COMING SOON',
-              style: TextStyle(
-                color: Colors.orangeAccent,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2.0,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Tính năng đang được phát triển!',
-            style: TextStyle(color: Colors.grey, fontSize: 14),
-          ),
-          const SizedBox(height: 28),
-          OutlinedButton.icon(
-            onPressed: () => context.read<NavigationController>().resetToHome(),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white24),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            icon: const Icon(Icons.home_outlined, size: 18),
-            label: const Text('Về Trang Chủ'),
-          ),
-        ],
-      ),
-    );
+      case AppScreen.streak:
+        return const StreakPage(key: ValueKey(AppScreen.streak));
+    }
   }
 }

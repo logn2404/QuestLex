@@ -29,8 +29,7 @@ class LearningVocabController extends ChangeNotifier {
   double get leftPanelWidth => _leftPanelWidth;
   bool get isLoading => _isLoading;
 
-  LearningVocabController({required LearningVocabRepository repository})
-      : _repository = repository {
+  LearningVocabController({required this._repository}) {
     loadData();
   }
 

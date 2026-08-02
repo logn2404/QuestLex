@@ -28,12 +28,10 @@ class HomeController extends ChangeNotifier {
   bool _isDisposed = false;
 
   HomeController({
-    required DashboardRepository repository,
-    required GameTimerService timerService,
+    required this._repository,
+    required this._timerService,
     TriggerConfigController? triggerConfigController,
-  })  : _repository = repository,
-        _timerService = timerService,
-        triggerConfigController = triggerConfigController ?? TriggerConfigController() {
+  })  : triggerConfigController = triggerConfigController ?? TriggerConfigController() {
     
     // Khởi tạo Trigger Manager
     _triggerManager = CaptureTriggerManager(
