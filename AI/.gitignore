@@ -1,0 +1,42 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Generated runtime artifacts
+*.log
+*.sqlite3
+*.db
+*.tmp
+*.bak
+
+# Local downloaded data and model assets
+models/
+nltk_data/
+user_history/
+*.pth
+*.bin
+*.safetensors
+
+# Build and packaging outputs
+build/
+dist/
+*.egg-info/
+
+# Editor and OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
