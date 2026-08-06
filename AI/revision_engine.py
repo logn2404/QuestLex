@@ -22,6 +22,7 @@ class RevisionEngine:
                     definition TEXT,
                     synonyms TEXT,
                     context_example TEXT,
+                    level TEXT DEFAULT 'A1',
                     mastery_score REAL DEFAULT 0.0,
                     repetition_count INTEGER DEFAULT 0,
                     interval_days INTEGER DEFAULT 0,
@@ -38,10 +39,17 @@ class RevisionEngine:
                     updated_at TIMESTAMP
                 )
             """)
+
+            cursor.execute("PRAGMA table_info(user_vocabulary)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "level" not in columns:
+                cursor.execute("ALTER TABLE user_vocabulary ADD COLUMN level TEXT DEFAULT 'A1'")
+            if "mastery_score" not in columns:
+                cursor.execute("ALTER TABLE user_vocabulary ADD COLUMN mastery_score REAL DEFAULT 0.0")
+
             conn.commit()
 
     def save_user_level(self, user_id: str, level: str) -> None:
-        """Persist the user's selected proficiency level for reuse on later runs."""
         now = datetime.now()
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -57,7 +65,6 @@ class RevisionEngine:
             conn.commit()
 
     def get_user_level(self, user_id: str) -> Optional[str]:
-        """Return the saved proficiency level for the user if one exists."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -72,19 +79,22 @@ class RevisionEngine:
     # ==========================================
     def add_word_to_study(
         self, user_id: str, word: str, pos: str, 
-        definition: str = "", synonyms: List[str] = None, context_example: str = ""
+        definition: str = "", synonyms: List[str] = None, context_example: str = "",
+        level: str = "A1", mastery_score: float = 0.0
     ) -> bool:
         now = datetime.now()
         synonyms_str = json.dumps(synonyms) if synonyms else "[]"
+        normalized_level = (level or "A1").upper()
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR IGNORE INTO user_vocabulary 
-                (user_id, word, pos, definition, synonyms, context_example, 
-                 mastery_score, repetition_count, interval_days, ease_factor, next_review_date, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 0.0, 0, 0, 2.5, ?, ?)
-            """, (user_id, word.lower(), pos, definition, synonyms_str, context_example, now, now))
+                (user_id, word, pos, definition, synonyms, context_example, level, mastery_score,
+                 repetition_count, interval_days, ease_factor, next_review_date, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, ?)
+            """, (user_id, word.lower(), pos, definition, synonyms_str, context_example,
+                  normalized_level, round(float(mastery_score), 2), now, now))
             conn.commit()
             return cursor.rowcount > 0
 
@@ -99,7 +109,7 @@ class RevisionEngine:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT repetition_count, interval_days, ease_factor 
+                SELECT repetition_count, interval_days, ease_factor, mastery_score
                 FROM user_vocabulary WHERE user_id = ? AND word = ?
             """, (user_id, word))
             row = cursor.fetchone()
@@ -107,7 +117,7 @@ class RevisionEngine:
             if not row:
                 raise ValueError(f"Từ '{word}' chưa được thêm vào kho học của user.")
 
-            rep_count, interval, ease_factor = row
+            rep_count, interval, ease_factor, current_mastery = row
 
             if quality < 3:
                 rep_count = 0
@@ -125,7 +135,8 @@ class RevisionEngine:
             ease_factor = ease_factor + (0.1 - (5 - q_sm2) * (0.08 + (5 - q_sm2) * 0.02))
             ease_factor = max(1.3, ease_factor)
 
-            mastery_score = min(1.0, round(interval / 30.0, 2))
+            mastery_increment = {1: 0.1, 2: 0.2, 3: 0.3, 4: 0.4}.get(quality, 0.2)
+            mastery_score = min(1.0, round(float(current_mastery or 0.0) + mastery_increment, 2))
             next_review = datetime.now() + timedelta(days=interval)
 
             cursor.execute("""
@@ -151,7 +162,7 @@ class RevisionEngine:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT word, pos, definition, synonyms, context_example, mastery_score, interval_days
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days
                 FROM user_vocabulary 
                 WHERE user_id = ? AND next_review_date <= ?
                 ORDER BY next_review_date ASC
@@ -166,22 +177,22 @@ class RevisionEngine:
                     "definition": r[2],
                     "synonyms": json.loads(r[3]) if r[3] else [],
                     "context_example": r[4],
-                    "mastery": r[5], 
-                    "interval_days": r[6]
+                    "level": r[5],
+                    "mastery": r[6], 
+                    "interval_days": r[7]
                 }
                 for r in rows
             ]
 
     def get_all_user_history(self, user_id: str) -> List[Dict[str, Any]]:
-        """Return the complete saved vocabulary history for a user, ordered by creation time."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT word, pos, definition, synonyms, context_example, mastery_score, interval_days, repetition_count, next_review_date, created_at
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days, repetition_count, next_review_date, created_at
                 FROM user_vocabulary
                 WHERE user_id = ?
-                ORDER BY created_at DESC, word ASC
+                ORDER BY level ASC, word ASC
                 """,
                 (user_id,)
             )
@@ -193,11 +204,12 @@ class RevisionEngine:
                     "definition": r[2],
                     "synonyms": json.loads(r[3]) if r[3] else [],
                     "context_example": r[4],
-                    "mastery": r[5],
-                    "interval_days": r[6],
-                    "repetition_count": r[7],
-                    "next_review_date": r[8],
-                    "created_at": r[9]
+                    "level": r[5],
+                    "mastery": r[6],
+                    "interval_days": r[7],
+                    "repetition_count": r[8],
+                    "next_review_date": r[9],
+                    "created_at": r[10]
                 }
                 for r in rows
             ]

@@ -323,13 +323,50 @@ class VocabularyExtractor:
 
         return kb_dict
 
+    def get_cefr_level(self, lemma: str) -> str:
+        level = self.cefr_db.get(lemma)
+        if level is not None:
+            return level
+
+        score = self.get_cefr_score(lemma)
+        if score < 0.18:
+            return "A1"
+        if score < 0.36:
+            return "A2"
+        if score < 0.58:
+            return "B1"
+        if score < 0.78:
+            return "B2"
+        if score < 0.9:
+            return "C1"
+        return "C2"
+
     def get_cefr_score(self, lemma: str) -> float:
         mapping = {"A1": 0.1, "A2": 0.3, "B1": 0.5, "B2": 0.7, "C1": 0.9, "C2": 1.0}
         level = self.cefr_db.get(lemma)
         if level is not None:
             return mapping.get(level, 0.7)
-        length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
-        return min(0.45 + length_bonus, 0.95)
+
+        length = len(lemma)
+        if length <= 4:
+            score = 0.12
+        elif length <= 6:
+            score = 0.24
+        elif length <= 8:
+            score = 0.40
+        elif length <= 10:
+            score = 0.58
+        else:
+            score = 0.74
+
+        if any(lemma.endswith(suffix) for suffix in ("tion", "ment", "ness", "ity", "ology", "ous", "able")):
+            score += 0.08
+        if length >= 10:
+            score += 0.08
+        if length >= 12:
+            score += 0.06
+
+        return min(max(score, 0.1), 0.95)
 
     def get_frequency_score(self, lemma: str) -> float:
         freq = self.freq_db.get(lemma)
@@ -395,6 +432,11 @@ class VocabularyExtractor:
         length_bonus = min(max(len(lemma) - 4, 0) * 0.02, 0.10)
         return pos_bonus.get(pos, 0.0) + length_bonus
 
+    @staticmethod
+    def _cefr_rank(level: str) -> int:
+        rank_map = {"A1": 0, "A2": 1, "B1": 2, "B2": 3, "C1": 4, "C2": 5}
+        return rank_map.get((level or "B2").upper(), 3)
+
     def process_text(
         self,
         text: str,
@@ -439,6 +481,8 @@ class VocabularyExtractor:
                 "word": lemma,
                 "pos": cand["pos"],
                 "context_example": cand["context_example"],
+                "level": self.get_cefr_level(lemma),
+                "mastery_score": 0.0,
                 "questlex_score": round(questlex_score, 4),
                 "breakdown": {
                     "keybert": round(s_kb, 3),
@@ -458,10 +502,18 @@ class VocabularyExtractor:
 
         if level is not None:
             level_thresholds = {
-                "A1": 0.10, "A2": 0.30, "B1": 0.50, "B2": 0.70, "C1": 0.90, "C2": 1.00,
+                "A1": 0.10, "A2": 0.24, "B1": 0.42, "B2": 0.62, "C1": 0.80, "C2": 0.92,
             }
-            min_cefr = level_thresholds.get(level.upper(), 0.50)
+            min_cefr = level_thresholds.get(level.upper(), 0.40)
             results = [item for item in results if item["breakdown"]["cefr"] >= min_cefr]
+
+        results.sort(
+            key=lambda item: (
+                self._cefr_rank(item.get("level", "B2")),
+                -item.get("questlex_score", 0.0),
+                -item.get("breakdown", {}).get("cefr", 0.0),
+            )
+        )
 
         top_results = results if (top_k is None or top_k >= len(results)) else results[:top_k]
 
@@ -474,5 +526,7 @@ class VocabularyExtractor:
             item["definition"] = dict_info["definition"]
             item["synonyms"] = dict_info["synonyms"]
             item["context_example"] = dict_info["example_sentence"]
+            item.setdefault("level", self.get_cefr_level(item["word"]))
+            item.setdefault("mastery_score", 0.0)
 
         return top_results

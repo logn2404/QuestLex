@@ -5,7 +5,6 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def run_flashcard_session(user_id: str, limit: int = 10):
-    # Khởi tạo kết nối CSDL
     db = RevisionEngine("./user_history/vocab_app.db")
     
     # Lấy danh sách từ đến hạn ôn tập
@@ -42,10 +41,12 @@ def run_flashcard_session(user_id: str, limit: int = 10):
         synonyms_str = ", ".join(item.get("synonyms", [])) if item.get("synonyms") else "N/A"
         
         print("\n---------------- LỜI GIẢI ----------------")
+        print(f"📊 Level     : {item.get('level', 'N/A')}")
         print(f"📌 Loại từ   : {item.get('pos', 'N/A')}")
         print(f"📖 Định nghĩa: {item.get('definition', 'N/A')}")
         print(f"🔗 Đồng nghĩa: {synonyms_str}")
         print(f"📝 Ví dụ     : \"{item.get('context_example', 'N/A')}\"")
+        print(f"📈 Mastery   : {item.get('mastery', 0.0)}/1.0")
         print("------------------------------------------\n")
         
         # ----------------------------------------

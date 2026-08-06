@@ -116,10 +116,12 @@ def main():
                 print("-" * 50)
                 for item in top_vocab:
                     word = item['word']
-                    print(f"📌 {word.upper()} ({item['pos']})")
+                    print(f"📌 {word.upper()} ({item['pos']})")   
+                    print(f"   📊 Level: {item.get('level', 'N/A')}")
                     print(f"   📖 Nghĩa: {item['definition']}")
                     print(f"   🔗 Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
-                    print(f"   📝 Ví dụ: \"{item['context_example']}\"\n")
+                    print(f"   📝 Ví dụ: \"{item['context_example']}\"")
+                    print(f"   📈 Mastery: {item.get('mastery_score', 0.0)}/1.0\n")
                     
                     # 4. Lưu vào Database
                     db.add_word_to_study(
@@ -128,7 +130,9 @@ def main():
                         pos=item['pos'], 
                         definition=item['definition'], 
                         synonyms=item['synonyms'], 
-                        context_example=item['context_example']
+                        context_example=item['context_example'],
+                        level=item.get('level', 'A1'),
+                        mastery_score=item.get('mastery_score', 0.0)
                     )
                 
                 print("-" * 50 + "\n")
@@ -151,9 +155,11 @@ def main():
             print("-" * 60)
             for index, item in enumerate(history, start=1):
                 print(f"{index}. {item['word'].upper()} ({item['pos']})")
+                print(f"   Level: {item.get('level', 'N/A')}")
                 print(f"   Nghĩa: {item['definition']}")
                 print(f"   Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
-                print(f"   Ví dụ: \"{item['context_example']}\"\n")
+                print(f"   Ví dụ: \"{item['context_example']}\"")
+                print(f"   Mastery: {item.get('mastery', 0.0)}/1.0\n")
 
             print("-" * 60)
             input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
