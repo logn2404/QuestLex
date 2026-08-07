@@ -11,7 +11,8 @@ class MatchingTransitionOverlay extends StatefulWidget {
       _MatchingTransitionOverlayState();
 }
 
-class _MatchingTransitionOverlayState extends State<MatchingTransitionOverlay> {
+class _MatchingTransitionOverlayState
+    extends State<MatchingTransitionOverlay> {
   final List<String> _vocabPool = [
     'WARRIOR', 'SHIELD', 'QUEST', 'VICTORY', 'LEGEND', 'DRAGON',
     'KINGDOM', 'PAWN', 'MASTERY', 'SPELL', 'KNIGHT', 'PINNACLE',
@@ -22,16 +23,46 @@ class _MatchingTransitionOverlayState extends State<MatchingTransitionOverlay> {
   int _visibleChipsCount = 0;
   late Timer _chipTimer;
 
+  // Set chứa danh sách index của các thẻ ĐÃ BIẾN MẤT
+  final Set<int> _hiddenChipIndices = {};
+  Timer? _disappearTimer;
+
   @override
   void initState() {
     super.initState();
 
-    _chipTimer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      if (_visibleChipsCount < 200) {
-        setState(() => _visibleChipsCount += 4);
+    // 1. Pha 1: Bắn thẻ lấp kín màn hình cực nhanh
+    _chipTimer = Timer.periodic(const Duration(milliseconds: 3), (timer) {
+      if (_visibleChipsCount < 380) {
+        setState(() => _visibleChipsCount += 12);
       } else {
         _chipTimer.cancel();
-        Future.delayed(const Duration(milliseconds: 200), () {
+        _startRandomDisappear(); // Chuyển sang Pha 2: Biến mất ngẫu nhiên
+      }
+    });
+  }
+
+  /// 2. Pha 2: Xóa ngẫu nhiên các từ trên màn hình
+  void _startRandomDisappear() {
+    // Tạo danh sách index từ 0 -> _visibleChipsCount và xáo trộn ngẫu nhiên
+    final List<int> allIndices = List.generate(_visibleChipsCount, (i) => i);
+    allIndices.shuffle();
+
+    int step = 0;
+    _disappearTimer = Timer.periodic(const Duration(milliseconds: 12), (timer) {
+      if (step < allIndices.length) {
+        setState(() {
+          // Mỗi nhịp biến mất ngẫu nhiên 12-15 thẻ ở các vị trí khác nhau
+          final end = (step + 14 < allIndices.length) ? step + 14 : allIndices.length;
+          for (int i = step; i < end; i++) {
+            _hiddenChipIndices.add(allIndices[i]);
+          }
+          step = end;
+        });
+      } else {
+        _disappearTimer?.cancel();
+        // Sau khi biến mất sạch sẽ thì kết thúc transition
+        Future.delayed(const Duration(milliseconds: 100), () {
           if (mounted) widget.onComplete();
         });
       }
@@ -41,6 +72,7 @@ class _MatchingTransitionOverlayState extends State<MatchingTransitionOverlay> {
   @override
   void dispose() {
     _chipTimer.cancel();
+    _disappearTimer?.cancel();
     super.dispose();
   }
 
@@ -49,54 +81,64 @@ class _MatchingTransitionOverlayState extends State<MatchingTransitionOverlay> {
     return Material(
       color: Colors.transparent,
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          // 🎯 ÉP PHỦ KÍN 100% TOÀN MÀN HÌNH TỪ ĐỈNH TỚI ĐÁY
+          // Nền tối xanh giữ nguyên phía sau
           Positioned.fill(
-            child: Container(
-              color: const Color(0xFF0A0E1A), // Nền tối che sạch sẽ bên dưới
-              child: Transform.scale(
-                scale: 1.2, // Phóng nhẹ để không bị hở viền ngoài
-                child: SingleChildScrollView(
-                  physics: const NeverScrollableScrollPhysics(),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    alignment: WrapAlignment.center,
-                    children: List.generate(_visibleChipsCount, (index) {
-                      final word = _vocabPool[index % _vocabPool.length];
-                      final isEven = index % 2 == 0;
-                      return AnimatedScale(
-                        scale: 1.0,
-                        duration: const Duration(milliseconds: 100),
-                        curve: Curves.easeOutBack,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isEven
-                                ? const Color(0xFF1E3A8A)
-                                : const Color(0xFF2563EB),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                                color: Colors.blueAccent.shade100, width: 1.5),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.blueAccent, blurRadius: 8),
-                            ],
-                          ),
-                          child: Text(
-                            word,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              letterSpacing: 1,
-                            ),
+            child: Container(color: const Color(0xFF0A0E1A)),
+          ),
+
+          // Lưới mảnh ghép từ vựng
+          Positioned(
+            top: -40,
+            bottom: -40,
+            left: -40,
+            right: -120,
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                alignment: WrapAlignment.start,
+                children: List.generate(_visibleChipsCount, (index) {
+                  final word = _vocabPool[index % _vocabPool.length];
+                  final isEven = index % 2 == 0;
+                  final isHidden = _hiddenChipIndices.contains(index);
+
+                  return AnimatedScale(
+                    scale: isHidden ? 0.0 : 1.0, // 🎯 Thu nhỏ về 0 để biến mất ngẫu nhiên
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeInBack,
+                    child: AnimatedOpacity(
+                      opacity: isHidden ? 0.0 : 1.0, // 🎯 Mờ dần
+                      duration: const Duration(milliseconds: 100),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isEven
+                              ? const Color(0xFF1E3A8A)
+                              : const Color(0xFF2563EB),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: Colors.blueAccent.shade100, width: 1.5),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.blueAccent, blurRadius: 8),
+                          ],
+                        ),
+                        child: Text(
+                          word,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            letterSpacing: 1,
                           ),
                         ),
-                      );
-                    }),
-                  ),
-                ),
+                      ),
+                    ),
+                  );
+                }),
               ),
             ),
           ),

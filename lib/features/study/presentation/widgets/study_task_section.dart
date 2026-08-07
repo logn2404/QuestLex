@@ -18,21 +18,15 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
   /// Kích hoạt Overlay tràn FULL 100% toàn bộ màn hình hệ thống
   void _showFullScreenTransition(
     Widget Function(VoidCallback onComplete) builder,
-    String screenName,
+    VoidCallback onTargetNavigation,
   ) {
     _overlayEntry = OverlayEntry(
       builder: (context) => builder(() {
         _removeOverlay();
-        // TODO: Chuyển hướng màn hình học tương ứng sau khi chạy xong transition
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Đã chuyển sang $screenName!')),
-          );
-        }
+        onTargetNavigation();
       }),
     );
 
-    // 🎯 Lấy rootOverlay: true để Overlay đè lên toàn bộ Scaffold, TopBar & Banner
     final rootOverlay = Overlay.of(context, rootOverlay: true);
     rootOverlay.insert(_overlayEntry!);
   }
@@ -54,7 +48,8 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
           crossAxisCount: isDesktop ? 3 : 1,
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
-          childAspectRatio: isDesktop ? 0.95 : 1.4,
+          // 🎯 Đã tăng tỉ lệ Aspect Ratio lên (1.35 cho desktop) để card ngắn & gọn gàng hơn
+          childAspectRatio: isDesktop ? 1.35 : 1.8,
           children: [
             // 1. FLASH CARD
             StudyModeCard(
@@ -69,11 +64,13 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               onDoubleClick: () => _showFullScreenTransition(
                 (onComplete) =>
                     FlashcardTransitionOverlay(onComplete: onComplete),
-                'FLASH CARD',
+                () {
+                  // TODO: Navigator sang FlashcardPage
+                },
               ),
             ),
 
-            // 2. MATCHING CARD (XÂY MẢNH GHÉP TỪ VỰNG KÍN MÀN HÌNH)
+            // 2. MATCHING CARD
             StudyModeCard(
               title: 'MATCHING CARD',
               description: 'Nối từ nhanh với Synonyms & Definition',
@@ -86,13 +83,15 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               onDoubleClick: () => _showFullScreenTransition(
                 (onComplete) =>
                     MatchingTransitionOverlay(onComplete: onComplete),
-                'MATCHING CARD',
+                () {
+                  // TODO: Navigator sang MatchingCardPage
+                },
               ),
             ),
 
-            // 3. WORD FILL
+            // 3. TYPING WORD (Đã đổi tên & cập nhật title mới)
             StudyModeCard(
-              title: 'WORD FILL',
+              title: 'TYPING WORD',
               description: 'Gõ lại chính xác từ vựng theo định nghĩa',
               icon: const Icon(
                 Icons.keyboard_rounded,
@@ -103,7 +102,9 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               onDoubleClick: () => _showFullScreenTransition(
                 (onComplete) =>
                     WordFillTransitionOverlay(onComplete: onComplete),
-                'WORD FILL',
+                () {
+                  // TODO: Navigator sang TypingWordPage
+                },
               ),
             ),
           ],
