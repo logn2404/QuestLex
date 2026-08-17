@@ -3,20 +3,40 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import json
+import threading
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DB_DIR = PROJECT_DIR / "../user_history" / "vocab_app.db"
 
+
 class RevisionEngine:
     def __init__(self, db_path: str = DB_DIR):
         self.db_path = db_path
+        self._lock = threading.Lock()
         self._init_db()
 
     def _get_connection(self):
-        return sqlite3.connect(self.db_path)
+        # Reuse one connection per engine instance instead of opening a new one
+        # per call. Default journal mode keeps the DB to a single .db file
+        # (no -wal/-shm sidecar files); this is a single-user local app so the
+        # WAL concurrency trade-off is unnecessary.
+        if not hasattr(self, "_conn") or self._conn is None:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        return self._conn
+
+    def close(self):
+        """Close the persistent connection (releases the file handle on Windows)."""
+        with self._lock:
+            conn = getattr(self, "_conn", None)
+            if conn is not None:
+                try:
+                    conn.close()
+                finally:
+                    self._conn = None
 
     def _init_db(self):
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_vocabulary (
@@ -55,7 +75,8 @@ class RevisionEngine:
 
     def save_user_level(self, user_id: str, level: str) -> None:
         now = datetime.now()
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -69,7 +90,8 @@ class RevisionEngine:
             conn.commit()
 
     def get_user_level(self, user_id: str) -> Optional[str]:
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT level FROM user_settings WHERE user_id = ?",
@@ -82,22 +104,33 @@ class RevisionEngine:
     # 1. THÊM TỪ MỚI VÀO SỔ TỪ VỰNG CỦA USER
     # ==========================================
     def add_word_to_study(
-        self, user_id: str, word: str, pos: str, 
+        self, user_id: str, word: str, pos: str,
         definition: str = "", synonyms: List[str] = None, context_example: str = "",
         level: str = "A1", mastery_score: float = 0.0
     ) -> bool:
         now = datetime.now()
         synonyms_str = json.dumps(synonyms) if synonyms else "[]"
         normalized_level = (level or "A1").upper()
+        word = word.lower()
 
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
+
+            # Upsert: refresh enriches on re-scan, but NEVER touch the SM-2
+            # state (repetition_count, interval, ease, next_review, mastery).
             cursor.execute("""
-                INSERT OR IGNORE INTO user_vocabulary 
+                INSERT INTO user_vocabulary 
                 (user_id, word, pos, definition, synonyms, context_example, level, mastery_score,
                  repetition_count, interval_days, ease_factor, next_review_date, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, ?)
-            """, (user_id, word.lower(), pos, definition, synonyms_str, context_example,
+                ON CONFLICT(user_id, word) DO UPDATE SET
+                    pos = excluded.pos,
+                    definition = excluded.definition,
+                    synonyms = excluded.synonyms,
+                    context_example = excluded.context_example,
+                    level = excluded.level
+            """, (user_id, word, pos, definition, synonyms_str, context_example,
                   normalized_level, round(float(mastery_score), 2), now, now))
             conn.commit()
             return cursor.rowcount > 0
@@ -110,7 +143,8 @@ class RevisionEngine:
             raise ValueError("Quality phải từ 1 đến 4.")
 
         word = word.lower()
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT repetition_count, interval_days, ease_factor, mastery_score
@@ -163,7 +197,8 @@ class RevisionEngine:
     # ==========================================
     def get_due_words(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         now = datetime.now()
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days
@@ -172,24 +207,25 @@ class RevisionEngine:
                 ORDER BY next_review_date ASC
                 LIMIT ?
             """, (user_id, now, limit))
-            
+
             rows = cursor.fetchall()
             return [
                 {
-                    "word": r[0], 
-                    "pos": r[1], 
+                    "word": r[0],
+                    "pos": r[1],
                     "definition": r[2],
                     "synonyms": json.loads(r[3]) if r[3] else [],
                     "context_example": r[4],
                     "level": r[5],
-                    "mastery": r[6], 
+                    "mastery": r[6],
                     "interval_days": r[7]
                 }
                 for r in rows
             ]
 
     def get_all_user_history(self, user_id: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -222,13 +258,14 @@ class RevisionEngine:
     # 4. XUẤT USER HISTORY CẤP CHO MODULE 1
     # ==========================================
     def get_user_history_for_extractor(self, user_id: str) -> Dict[str, Any]:
-        with self._get_connection() as conn:
+        with self._lock:
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT word, mastery_score FROM user_vocabulary WHERE user_id = ?
             """, (user_id,))
             rows = cursor.fetchall()
-            
+
             learned_words = {r[0]: {"mastery": r[1]} for r in rows}
             return {
                 "user_id": user_id,

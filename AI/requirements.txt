@@ -10,9 +10,13 @@ torch>=2.0.0
 wordninja>=2.0.0
 pyspellchecker>=0.7.0
 spacy>=3.6.0
+wordfreq>=2.4.0
 
 # Optional: download the spaCy model used by vocab_extractor.py
 # python -m spacy download en_core_web_sm
 
 # Optional: download the NLTK datasets used by the NLP modules
 # python -m nltk.downloader brown gutenberg wordnet punkt
+
+# Optional: download the CEFR wordlist used for level scoring
+# python download_wordlists.py
