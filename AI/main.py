@@ -65,7 +65,7 @@ def main():
         print("      🤖 QUESTLEX - AI VOCAB APP          ")
         print("==========================================")
         print("  [1] 📸 Quét toàn bộ ảnh trong thư mục 'images'")
-        print("  [2] 🧠 Ôn tập Flashcard (Spaced Repetition)")
+        print("  [2] 🧠 Ôn tập Từ Vựng (Study & Practice Mode)")
         print("  [3] 📚 Xem toàn bộ lịch sử từ vựng")
         print("  [4] ❌ Thoát ứng dụng")
         print("==========================================")
@@ -90,7 +90,6 @@ def main():
                 input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
                 continue
 
-            # Fetch preloaded engines (blocks briefly only if background load isn't finished yet)
             print("🧠 Đang kiểm tra/nạp mô hình AI...")
             ocr_engine = get_ocr_engine()
             vocab_engine = get_vocab_engine()
@@ -104,7 +103,6 @@ def main():
                 image_path = os.path.join(image_dir, img_name)
                 print(f"🖼️  --- ĐANG XỬ LÝ: {img_name} ---")
 
-                # 1. OCR trích xuất text từ ảnh
                 extracted_text, conf = ocr_engine.extract_text_from_image(image_path)
                 print(f"📄 Văn bản OCR đọc được: \"{extracted_text}\"\n")
 
@@ -112,10 +110,8 @@ def main():
                     print("⚠️ Không tìm thấy văn bản trong ảnh này, bỏ qua.\n")
                     continue
 
-                # 2. Lấy lịch sử user để thuật toán chấm điểm ưu tiên
                 user_profile = db.get_user_history_for_extractor(USER_ID)
 
-                # 3. Phân tích và lấy tất cả từ phù hợp với mức độ người dùng
                 top_vocab = vocab_engine.process_text(
                     text=extracted_text,
                     user_history=user_profile,
@@ -134,9 +130,8 @@ def main():
                     print(f"   📖 Nghĩa: {item['definition']}")
                     print(f"   🔗 Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
                     print(f"   📝 Ví dụ: \"{item['context_example']}\"")
-                    print(f"   📈 Mastery: {item.get('mastery_score', 0.0)}/1.0\n")
+                    print(f"   📈 Mastery: {round(item.get('mastery_score', 0.0)*100)}%\n")
 
-                    # 4. Lưu vào Database
                     db.add_word_to_study(
                         user_id=USER_ID,
                         word=word,
@@ -172,7 +167,7 @@ def main():
                 print(f"   Nghĩa: {item['definition']}")
                 print(f"   Đồng nghĩa: {', '.join(item['synonyms']) if item['synonyms'] else 'N/A'}")
                 print(f"   Ví dụ: \"{item['context_example']}\"")
-                print(f"   Mastery: {item.get('mastery', 0.0)}/1.0\n")
+                print(f"   Mastery: {round(item.get('mastery', 0.0)*100)}%\n")
 
             print("-" * 60)
             input("\n👉 Nhấn [Enter] để quay lại Menu chính...")
