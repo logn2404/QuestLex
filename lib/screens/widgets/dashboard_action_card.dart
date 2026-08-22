@@ -49,7 +49,7 @@ class DashboardActionCard extends StatelessWidget {
                       color: const Color(0xFFD0BCFF),
                     ),
                   ),
-                  if (customIcon != null) customIcon!,
+                  ?customIcon,
                 ],
               ),
 

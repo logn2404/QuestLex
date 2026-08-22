@@ -5,7 +5,6 @@ import '../../../home/presentation/home_page.dart';
 import '../../../inventory_vocab/presentation/inventory_page.dart';
 import '../../../learning_vocab/presentation/learning_page.dart';
 import '../../../streak/presentation/streak_page.dart';
-// 🎯 Import StudyPage từ feature study mới
 import '../../../study/presentation/pages/study_page.dart';
 
 import '../../domain/app_screen.dart';
@@ -53,7 +52,7 @@ class MainShellPage extends StatelessWidget {
                         height: 40,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08), // Nền mờ chuẩn Dark UI
+                          color: Colors.white.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: Colors.white.withValues(alpha: 0.12),
@@ -87,11 +86,13 @@ class MainShellPage extends StatelessWidget {
         return const LearningPage(key: ValueKey(AppScreen.learning));
 
       case AppScreen.study:
-        // 🎯 ĐÃ BỔ SUNG TRANG RÈN LUYỆN STUDY PAGE
         return const StudyPage(key: ValueKey(AppScreen.study));
 
       case AppScreen.streak:
         return const StreakPage(key: ValueKey(AppScreen.streak));
+
+      default:
+        return const HomePage(key: ValueKey(AppScreen.home));
     }
   }
 }

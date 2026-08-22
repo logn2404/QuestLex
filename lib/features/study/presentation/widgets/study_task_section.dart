@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 
+import 'package:questlex/features/study/presentation/widgets/flashcard/flashcard_session_view.dart';
 import 'package:questlex/features/study/presentation/widgets/study_mode_card.dart';
 import 'package:questlex/features/study/presentation/widgets/transitions/flashcard_transition.dart';
 import 'package:questlex/features/study/presentation/widgets/transitions/matching_transition.dart';
 import 'package:questlex/features/study/presentation/widgets/transitions/word_fill_transition.dart';
 
 class StudyTaskSection extends StatefulWidget {
-  const StudyTaskSection({super.key});
+  final List<Map<String, dynamic>> words;
+  final Function(String word, int quality) onReview;
+
+  const StudyTaskSection({
+    super.key,
+    required this.words,
+    required this.onReview,
+  });
 
   @override
   State<StudyTaskSection> createState() => _StudyTaskSectionState();
@@ -15,7 +23,7 @@ class StudyTaskSection extends StatefulWidget {
 class _StudyTaskSectionState extends State<StudyTaskSection> {
   OverlayEntry? _overlayEntry;
 
-  /// Kích hoạt Overlay tràn FULL 100% toàn bộ màn hình hệ thống
+  /// Kích hoạt Overlay tràn FULL 100% toàn bộ màn hình ứng dụng
   void _showFullScreenTransition(
     Widget Function(VoidCallback onComplete) builder,
     VoidCallback onTargetNavigation,
@@ -27,7 +35,8 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
       }),
     );
 
-    final rootOverlay = Overlay.of(context, rootOverlay: true);
+    // 🎯 FIX LỖI: Lấy trực tiếp OverlayState thông qua Overlay.of(context)
+    final rootOverlay = Overlay.maybeOf(context, rootOverlay: true) ?? Overlay.of(context);
     rootOverlay.insert(_overlayEntry!);
   }
 
@@ -48,7 +57,6 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
           crossAxisCount: isDesktop ? 3 : 1,
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
-          // 🎯 Đã tăng tỉ lệ Aspect Ratio lên (1.35 cho desktop) để card ngắn & gọn gàng hơn
           childAspectRatio: isDesktop ? 1.35 : 1.8,
           children: [
             // 1. FLASH CARD
@@ -56,7 +64,7 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               title: 'FLASH CARD',
               description: 'Lật thẻ tương tác xem từ vựng, âm thanh & nghĩa',
               icon: const Icon(
-                Icons.style_rounded,
+                Icons.view_carousel_rounded,
                 color: Color(0xFFE53935),
                 size: 32,
               ),
@@ -65,7 +73,16 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
                 (onComplete) =>
                     FlashcardTransitionOverlay(onComplete: onComplete),
                 () {
-                  // TODO: Navigator sang FlashcardPage
+                  // Mở FlashcardSessionView sau khi hết Transition Overlay
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FlashcardSessionView(
+                        words: widget.words,
+                        onReview: widget.onReview,
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
@@ -89,7 +106,7 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               ),
             ),
 
-            // 3. TYPING WORD (Đã đổi tên & cập nhật title mới)
+            // 3. TYPING WORD
             StudyModeCard(
               title: 'TYPING WORD',
               description: 'Gõ lại chính xác từ vựng theo định nghĩa',

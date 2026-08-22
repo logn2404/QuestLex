@@ -5,9 +5,9 @@ class CustomIcon extends StatelessWidget {
   final Widget child;
 
   const CustomIcon._({
-    Key? key,
+    super.key,
     required this.child,
-  }) : super(key: key);
+  });
 
   /// 🎴 Icon Thẻ Bài Học Tập / Flashcards (Theme Đỏ - Đen BẮT ĐẦU HỌC)
   factory CustomIcon.swordShield({double size = 32.0, Key? key}) {
