@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
-import 'package:path_provider/path_provider.dart';
 import 'package:win32/win32.dart';
 
 /// Hàm mã hóa PNG & lưu đĩa chạy độc lập trên Background Thread (Isolate)
@@ -27,7 +26,6 @@ Future<void> _encodeAndSavePngInBackground(Map<String, dynamic> params) async {
     image.setPixelRgba(x, y, r, g, b, a);
   }
 
-  // Mã hóa PNG và ghi ra file hoàn toàn ở Background Thread
   final pngBytes = img.encodePng(image);
   final File newFile = File(filePath);
   await newFile.writeAsBytes(pngBytes);
@@ -38,20 +36,36 @@ class ScreenCaptureService {
   final List<File> _capturedFiles = [];
   static const int _maxKeepCount = 10;
 
+  /// 🎯 Trỏ chính xác đến thư mục images/ ở Root Project (QuestLex/images/)
   Future<Directory> _getCaptureDirectory() async {
     if (_customCaptureDir != null && await _customCaptureDir!.exists()) {
       return _customCaptureDir!;
     }
-    final Directory appDocDir = await getApplicationSupportDirectory();
-    final Directory captureDir = Directory('${appDocDir.path}/questlex_captures');
 
-    if (!await captureDir.exists()) {
-      await captureDir.create(recursive: true);
-      debugPrint('📂 [ScreenCaptureService]: Đã tạo thư mục ảnh: ${captureDir.path}');
+    Directory currentDir = Directory.current;
+    Directory targetImagesDir;
+
+    // Kiểm tra xem Flutter có đang chạy từ thư mục con (ví dụ 'questlex') hay không
+    // Nếu có, lùi ra 1 cấp thư mục cha (parent) để vào gốc QuestLex/
+    if (currentDir.path.toLowerCase().endsWith('questlex') && currentDir.parent.existsSync()) {
+      targetImagesDir = Directory('${currentDir.parent.path}${Platform.pathSeparator}images');
+    } else {
+      // Trường hợp đứng sẵn ở Root Project
+      targetImagesDir = Directory('${currentDir.path}${Platform.pathSeparator}images');
     }
 
-    _customCaptureDir = captureDir;
-    return captureDir;
+    if (!await targetImagesDir.exists()) {
+      await targetImagesDir.create(recursive: true);
+      debugPrint('📂 [ScreenCaptureService]: Đã tạo thư mục images dùng chung tại: ${targetImagesDir.path}');
+    }
+
+    _customCaptureDir = targetImagesDir;
+    debugPrint('📍 [SCREEN CAPTURE PATH]: ${targetImagesDir.absolute.path}');
+    return targetImagesDir;
+  }
+
+  void setCustomDirectory(Directory dir) {
+    _customCaptureDir = dir;
   }
 
   Future<bool> checkPermission() async {
@@ -62,12 +76,18 @@ class ScreenCaptureService {
   Future<String?> captureEntireScreen() async {
     try {
       final Directory saveDir = await _getCaptureDirectory();
-      final String filePath = '${saveDir.path}/scan_${DateTime.now().millisecondsSinceEpoch}.png';
+      final String filePath = '${saveDir.path}${Platform.pathSeparator}scan_${DateTime.now().millisecondsSinceEpoch}.png';
 
       // 1. Lấy kích thước màn hình
       final hdcScreen = GetDC(0);
       final width = GetSystemMetrics(SM_CXSCREEN);
       final height = GetSystemMetrics(SM_CYSCREEN);
+
+      if (width <= 0 || height <= 0) {
+        debugPrint('❌ [Win32 Error]: Không lấy được kích thước màn hình ($width x $height)');
+        ReleaseDC(0, hdcScreen);
+        return null;
+      }
 
       // 2. Tạo Device Context & Bitmap
       final hdcMem = CreateCompatibleDC(hdcScreen);
@@ -77,7 +97,7 @@ class ScreenCaptureService {
       // 3. BitBlt lấy Pixel
       BitBlt(hdcMem, 0, 0, width, height, hdcScreen, 0, 0, SRCCOPY);
 
-      // 4. Trích xuất dữ liệu thô (Raw Pixel Buffer)
+      // 4. Trích xuất dữ liệu thô
       final bmi = calloc<BITMAPINFO>();
       bmi.ref.bmiHeader.biSize = sizeOf<BITMAPINFOHEADER>();
       bmi.ref.bmiHeader.biWidth = width;
@@ -89,10 +109,9 @@ class ScreenCaptureService {
       final pixelBuffer = calloc<Uint8>(width * height * 4);
       GetDIBits(hdcMem, hBitmap, 0, height, pixelBuffer, bmi, DIB_RGB_COLORS);
 
-      // Copy nhanh dữ liệu thô sang Dart Memory trước khi free C++ Memory
       final Uint8List rawBytes = Uint8List.fromList(pixelBuffer.asTypedList(width * height * 4));
 
-      // 5. Dọn dẹp Win32 Memory NGAY LẬP TỨC (Dưới 1ms)
+      // Dọn dẹp C++ Memory
       free(bmi);
       free(pixelBuffer);
       SelectObject(hdcMem, hOld);
@@ -100,7 +119,7 @@ class ScreenCaptureService {
       DeleteDC(hdcMem);
       ReleaseDC(0, hdcScreen);
 
-      // ⚡ 6. ĐẨY NẶNG SANG BACKGROUND ISOLATE MÃ HÓA & LƯU FILE
+      // ⚡ 5. Đẩy sang Background Isolate mã hóa & lưu file
       await compute(_encodeAndSavePngInBackground, {
         'width': width,
         'height': height,
@@ -111,17 +130,18 @@ class ScreenCaptureService {
       final File newFile = File(filePath);
       if (await newFile.exists()) {
         _capturedFiles.add(newFile);
-        debugPrint('📸 [Chụp Isolate Mượt Mà]: ${newFile.path}');
+        debugPrint('📸 [Chụp & Lưu Thành Công]: ${newFile.path}');
         await _cleanOldCaptures();
       }
 
       return filePath;
     } catch (e) {
-      debugPrint('❌ [Win32 Isolate Capture Error]: $e');
+      debugPrint('❌ [Win32 Capture Error]: $e');
       return null;
     }
   }
 
+  /// 🧹 Giới hạn giữ tối đa 10 ảnh cũ trong folder
   Future<void> _cleanOldCaptures() async {
     while (_capturedFiles.length > _maxKeepCount) {
       final File oldFile = _capturedFiles.removeAt(0);
@@ -136,23 +156,22 @@ class ScreenCaptureService {
     }
   }
 
-  /// 🧹 Hàm xóa sạch TOÀN BỘ file ảnh trong thư mục capture khi bắt đầu phiên quét mới
+  /// 🧹 Dọn dẹp sạch folder images/
   Future<void> clearAllCaptures() async {
     try {
       final Directory dir = await _getCaptureDirectory();
       if (await dir.exists()) {
         final List<FileSystemEntity> entities = await dir.list().toList();
         for (var entity in entities) {
-          if (entity is File && entity.path.endsWith('.png')) {
+          if (entity is File && entity.path.toLowerCase().endsWith('.png')) {
             await entity.delete();
           }
         }
-        _capturedFiles.clear(); // Clear luôn danh sách quản lý RAM
-        debugPrint('🧹 [ScreenCaptureService]: Đã dọn dẹp sạch toàn bộ ảnh trong thư mục!');
+        _capturedFiles.clear();
+        debugPrint('🧹 [ScreenCaptureService]: Đã dọn dẹp sạch toàn bộ ảnh trong ${dir.path}!');
       }
     } catch (e) {
       debugPrint('⚠️ [Lỗi dọn sạch thư mục ảnh]: $e');
     }
   }
-
 }

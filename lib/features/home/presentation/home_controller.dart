@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
+import '../../../services/ai_service.dart';
 import '../../../services/game_timer_service.dart';
 import '../../../services/screen_capture_service.dart';
 import '../domain/models/dashboard_stats.dart';
@@ -135,7 +136,7 @@ class HomeController extends ChangeNotifier {
       // Lấy toàn bộ file .png trong thư mục capture
       List<FileSystemEntity> files = directory
           .listSync()
-          .where((entity) => entity is File && entity.path.endsWith('.png'))
+          .where((entity) => entity is File && entity.path.toLowerCase().endsWith('.png'))
           .toList();
 
       // Nếu số file vượt quá giới hạn (10 tấm)
@@ -155,7 +156,7 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  // --- CORE CAPTURE ---
+  // --- CORE CAPTURE & AI PROCESSING ---
   Future<void> _triggerCapture(String triggerSource) async {
     if (!_isScanningActive || _isCapturingNow) return;
 
@@ -175,14 +176,25 @@ class HomeController extends ChangeNotifier {
       if (path != null) {
         debugPrint('📸 [Chụp thành công]: $path');
         
-        // 🛡️ DỌN DẸP BỘ NHỚ ĐỆM: Giữ tối đa 10 tấm ảnh mới nhất
+        // 1. Dọn dẹp cache ảnh cũ (giữ tối đa 10 ảnh mới nhất)
         await _cleanOldCaptures(path, maxFiles: MaxCaptureFiles);
 
-        // TODO: Gửi 'path' này cho Model AI ONNX xử lý
-        // await _aiService.processImage(path);
+        // 2. KÍCH HOẠT PYTHON AI BACKEND QUÉT THƯ MỤC IMAGES/
+        debugPrint('🧠 [AI Scan]: Đang kích hoạt Python AI Backend quét thư mục images/...');
+        final scanResult = await AIService.triggerScanFolder();
+
+        if (scanResult != null && scanResult['success'] == true) {
+          final int totalFound = scanResult['total_vocab_found'] ?? 0;
+          debugPrint('✅ [AI Scan Thành công]: Đã trích xuất & lưu $totalFound từ vựng mới vào DB.');
+          
+          // 3. Tải lại thống kê Dashboard UI để cập nhật số lượng từ vựng vừa tìm thấy
+          await loadStats();
+        } else {
+          debugPrint('⚠️ [AI Scan]: Không phát hiện từ vựng mới hoặc chưa bật Backend Python.');
+        }
       }
     } catch (e, stackTrace) {
-      debugPrint('❌ [Lỗi chụp]: $e\n$stackTrace');
+      debugPrint('❌ [Lỗi chụp / Xử lý AI]: $e\n$stackTrace');
     } finally {
       _isCapturingNow = false;
       _hookService.isBusy = false; // Mở lại hook

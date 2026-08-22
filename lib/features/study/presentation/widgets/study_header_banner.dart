@@ -1,146 +1,63 @@
 import 'package:flutter/material.dart';
-import 'package:questlex/features/study/domain/enums/study_mode.enum.dart';
+import '../../domain/enums/study_mode.enum.dart';
 
 class StudyHeaderBanner extends StatelessWidget {
   final StudyMode mode;
   final bool isGoldenHour;
   final double expMultiplier;
+  final int wordCount; // Thêm tham số đếm số từ
 
   const StudyHeaderBanner({
     super.key,
     required this.mode,
-    this.isGoldenHour = false,
-    this.expMultiplier = 1.0,
+    required this.isGoldenHour,
+    required this.expMultiplier,
+    required this.wordCount,
   });
 
   @override
   Widget build(BuildContext context) {
-    return mode == StudyMode.study
-        ? _buildStudyBanner()
-        : _buildPracticeBanner();
-  }
+    final isStudy = mode == StudyMode.study;
 
-  Widget _buildStudyBanner() {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [const Color(0xFFB71C1C).withValues(alpha: 0.3), Colors.black54],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          colors: isStudy
+              ? [const Color(0xFF380A0A), const Color(0xFF1E1E24)]
+              : [const Color(0xFF0F1E15), const Color(0xFF1E1E24)],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isGoldenHour ? Colors.amber.shade700 : const Color(0xFFB71C1C),
+          color: isStudy ? Colors.redAccent.withOpacity(0.3) : Colors.greenAccent.withOpacity(0.3),
         ),
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: isGoldenHour ? Colors.amber.withValues(alpha: 0.2) : Colors.red.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isGoldenHour ? Icons.access_time_filled_rounded : Icons.menu_book_rounded,
-              color: isGoldenHour ? Colors.amber : Colors.redAccent,
-              size: 28,
-            ),
+          Icon(
+            isStudy ? Icons.bolt_rounded : Icons.security_rounded,
+            color: isStudy ? Colors.amber : Colors.greenAccent,
+            size: 32,
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      isGoldenHour ? '🔥 GIỜ VÀNG TẬP TRUNG' : 'CHẾ ĐỘ HỌC ĐẠT EXP',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: isGoldenHour ? Colors.amber : Colors.white,
-                      ),
-                    ),
-                    if (isGoldenHour) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.amber,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'BUFF x${expMultiplier.toStringAsFixed(1)} EXP',
-                          style: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                Text(
+                  isStudy
+                      ? (isGoldenHour ? '🔥 GIỜ VÀNG (BUFF x$expMultiplier EXP)' : '🗡️ CHẾ ĐỘ STUDY')
+                      : '🛡️ CHẾ ĐỘ PRACTICE (SINH TỒN)',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                 ),
                 const SizedBox(height: 4),
+                // 🎯 DÒNG THÔNG BÁO TỪ VỰNG TẢI NGẦM
                 Text(
-                  isGoldenHour
-                      ? 'Đang trong khung giờ vàng! Hoàn thành bài học ngay để nhận gấp đôi EXP.'
-                      : 'Học bài mới để mở khóa Mastery và tích lũy EXP tăng cấp.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400, height: 1.3),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPracticeBanner() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.deepOrange.shade900.withValues(alpha: 0.4), Colors.black54],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.deepOrangeAccent),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.warning_amber_rounded,
-              color: Colors.orangeAccent,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '⚡ THỬ THÁCH SINH TỒN VÔ HẠN',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: Colors.orangeAccent,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Ưu tiên từ có điểm Mastery thấp. Trả lời đúng nhận Mastery & EXP liên tục. Sai 1 câu dừng Session!',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400, height: 1.3),
+                  wordCount > 0 
+                      ? '⚔️ Có $wordCount từ vựng đang chờ bạn chinh phục!'
+                      : '⏳ Đang tải từ vựng...',
+                  style: TextStyle(color: isStudy ? Colors.redAccent.shade100 : Colors.greenAccent.shade100, fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
