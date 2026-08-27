@@ -1,0 +1,1 @@
+enum StudyMode { study, practice }
