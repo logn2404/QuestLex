@@ -7,18 +7,21 @@ import wordninja
 from spellchecker import SpellChecker
 from typing import Tuple
 from functools import lru_cache
-
+from concurrent.futures import ThreadPoolExecutor
 
 class OCRExtractor:
-    def __init__(self, languages: list = None, use_gpu: bool = None):
+    def __init__(self, languages: list = None, use_gpu: bool = None, max_workers: int = None):
         if languages is None:
             languages = ["en"]
+            
         if use_gpu is None:
-            use_gpu = torch.cuda.is_available()
+            use_gpu = torch.cuda.is_available() or torch.backends.mps.is_available()
 
-        gpu = bool(use_gpu and torch.cuda.is_available())
-        self.reader = easyocr.Reader(languages, gpu=gpu, quantize=True)
+        self.reader = easyocr.Reader(languages, gpu=use_gpu, quantize=True)
         self.spell = SpellChecker()
+        
+        # Determine optimal thread count for parallel CPU tasks (NLP correction)
+        self.max_workers = max_workers
 
     @lru_cache(maxsize=8192)
     def _correct_word(self, word_lower: str) -> str:
@@ -105,8 +108,12 @@ class OCRExtractor:
         if not text:
             return ""
 
-        lines = text.splitlines()
-        corrected_lines = [self._correct_line(line) for line in lines if line.strip()]
+        lines = [line for line in text.splitlines() if line.strip()]
+        
+        # Parallelize the CPU-heavy spellchecking and word splitting
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            corrected_lines = list(executor.map(self._correct_line, lines))
+            
         full_sentence = "\n".join(corrected_lines)
         full_sentence = re.sub(r'\s+([.,!?;])', r'\1', full_sentence)
         return full_sentence.strip()
@@ -116,8 +123,7 @@ class OCRExtractor:
         if processed_img is None:
             return "", 0.0
 
-        # paragraph=True groups detected lines into paragraphs with natural
-        # sentence/line boundaries instead of one flat string.
+        # GPU acceleration handles the heavy lifting here automatically via EasyOCR
         results = self.reader.readtext(
             processed_img,
             adjust_contrast=False,
@@ -127,8 +133,6 @@ class OCRExtractor:
         if not results:
             return "", 0.0
 
-        # paragraph=True returns (bbox, text) tuples without per-box
-        # confidence. Handle both (bbox, text) and (bbox, text, prob) shapes.
         raw_text_parts = []
         confidences = []
 
@@ -141,8 +145,7 @@ class OCRExtractor:
                 prob = None
 
             text = text.strip()
-            # Drop low-confidence boxes when confidence is available; they
-            # are mostly noise, not real text.
+            
             if text and (prob is None or prob >= 0.30):
                 raw_text_parts.append(text)
                 if prob is not None:
@@ -154,6 +157,7 @@ class OCRExtractor:
         raw_text = "\n".join(raw_text_parts)
         average_confidence = float(np.mean(confidences)) if confidences else 0.60
 
+        # Skip the NLP process entirely if OCR is highly confident
         if average_confidence > 0.85:
             clean_text = raw_text
         else:

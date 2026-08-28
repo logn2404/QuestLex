@@ -5,6 +5,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Any
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 
 from nltk_example_extractor import NLTKExampleExtractor
 
@@ -32,8 +33,7 @@ DOMAIN_CEFR = {
     "holocron": "C2", "blaster": "B2", "saber": "C1", "republic": "B2",
 }
 
-# POS-tag patterns for multi-word candidates (noun phrases). Works with the
-# tagger + attribute ruler only — the dependency parser stays disabled.
+# POS-tag patterns for multi-word candidates (noun phrases).
 PHRASE_PATTERNS = [
     [{"POS": "ADJ"}, {"POS": "NOUN"}],
     [{"POS": "NOUN"}, {"POS": "NOUN"}],
@@ -42,12 +42,26 @@ PHRASE_PATTERNS = [
 
 MAX_DOC_CHARS = 100_000
 
+# WordNet root hypernyms & categories to ignore (non-learning words)
+EXCLUDED_LEXNAMES = {"noun.quantity", "noun.location", "noun.time"}
+EXCLUDED_HYPERNYMS = {
+    "unit_of_measurement.n.01",
+    "linear_unit.n.01",
+    "area_unit.n.01",
+    "volume_unit.n.01",
+    "mass_unit.n.01",
+    "historical_event.n.01",
+    "chronological_record.n.01",
+}
+
 
 def ensure_model_paths():
     MODELS_DIR.mkdir(exist_ok=True)
     NLTK_DATA_DIR.mkdir(exist_ok=True)
     KEYBERT_MODEL_DIR.parent.mkdir(exist_ok=True)
     os.environ.setdefault("HF_HOME", str(MODELS_DIR))
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 
 def _load_cefr_map() -> Dict[str, str]:
@@ -81,14 +95,16 @@ def _load_wordfreq():
 
 
 class VocabularyExtractor:
-    def __init__(self, spacy_model: str = "en_core_web_sm"):
+    def __init__(self, spacy_model: str = "en_core_web_sm", max_workers: int = None):
 
         self.is_ready = False
         self._ready_event = threading.Event()
         self.spacy_model_name = spacy_model
+        self.max_workers = max_workers
         self.nlp = None
         self.matcher = None
         self.kw_model = None
+        self.embedding_model = None
         self.dict_engine = None
         self.nltk_example_engine = None
         self._dictionary_cache: Dict[str, Dict[str, Any]] = {}
@@ -102,17 +118,21 @@ class VocabularyExtractor:
         try:
             import spacy
             from keybert import KeyBERT
+            from sentence_transformers import SentenceTransformer
             from spacy.matcher import Matcher
             import nltk
+            import torch
             from offline_dictionary import LargeOfflineDictionary
 
             ensure_model_paths()
             if str(NLTK_DATA_DIR) not in nltk.data.path:
                 nltk.data.path.append(str(NLTK_DATA_DIR))
 
-            # Parser + NER disabled: sentence boundaries come from the cheap
-            # sentencizer, POS tagging still runs, and the Matcher extracts
-            # noun phrases from POS tags. This keeps spaCy ~2-3x faster.
+            # Explicit Hardware Acceleration Detection
+            device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+            if device != "cpu":
+                spacy.prefer_gpu()
+
             self.nlp = spacy.load(
                 self.spacy_model_name,
                 disable=["parser", "ner"],
@@ -128,7 +148,10 @@ class VocabularyExtractor:
 
             self.dict_engine = LargeOfflineDictionary()
             self.nltk_example_engine = NLTKExampleExtractor(min_words=6, max_words=16)
-            self.kw_model = KeyBERT(model=str(KEYBERT_MODEL_DIR))
+
+            # Load shared SentenceTransformer locally for KeyBERT and Embedding WSD
+            self.embedding_model = SentenceTransformer(str(KEYBERT_MODEL_DIR), device=device)
+            self.kw_model = KeyBERT(model=self.embedding_model)
 
             self.is_ready = True
         except Exception as e:
@@ -140,7 +163,6 @@ class VocabularyExtractor:
         self._ready_event.wait()
 
     def _get_doc(self, text: str):
-        """Parse text once and reuse the Doc. Clears the cache when it grows."""
         cache_key = text
         doc = self._doc_cache.get(cache_key)
         if doc is None:
@@ -166,7 +188,7 @@ class VocabularyExtractor:
         return max(0.0, min(1.0, normalized))
 
     # ------------------------------------------------------------------
-    # Offline lexical data
+    # Offline lexical data & Non-Learning Word Filter
     # ------------------------------------------------------------------
     @staticmethod
     @lru_cache(maxsize=32768)
@@ -177,9 +199,37 @@ class VocabularyExtractor:
         except Exception:
             return []
 
+    @classmethod
+    @lru_cache(maxsize=16384)
+    def _is_non_learning_word(cls, word: str) -> bool:
+        if word.lower() in DOMAIN_CEFR:
+            return False
+
+        synsets = cls._wordnet_synsets(word)
+        if not synsets:
+            return False
+
+        all_excluded = True
+        for syn in synsets:
+            # 1. Check Lexicographer Category
+            if syn.lexname() in EXCLUDED_LEXNAMES:
+                continue
+
+            # 2. Check Hypernym Tree for Measurement Units or Historical Events
+            hypernym_names = set()
+            for path in syn.hypernym_paths():
+                hypernym_names.update(h.name() for h in path)
+
+            if hypernym_names & EXCLUDED_HYPERNYMS:
+                continue
+
+            all_excluded = False
+            break
+
+        return all_excluded
+
     @staticmethod
     def _context_window(context: str, word: str, radius: int = 5) -> str:
-        """±radius token window around the first occurrence of word in context."""
         tokens = re.findall(r"[a-z']+", context.lower())
         words = word.lower().replace("_", " ").split()
         if not tokens or not words:
@@ -203,7 +253,7 @@ class VocabularyExtractor:
         content_tokens = [
             token.lemma_.lower()
             for token in doc
-            if token.is_alpha and not token.is_stop and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}
+            if token.is_alpha and not token.is_stop and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV"}
         ]
 
         if len(content_tokens) < 2:
@@ -259,12 +309,10 @@ class VocabularyExtractor:
         return overlap < 1
 
     # ------------------------------------------------------------------
-    # Examples & dictionary
+    # Advanced Embedding-Based WSD & Dictionary Fetching
     # ------------------------------------------------------------------
     def build_example_sentence(self, word: str, context: str = "", pos: str = "") -> str:
         normalized_word = word.lower()
-
-        # A2: prefer the real source sentence the word appeared in.
         cleaned_context = context.strip()
         if cleaned_context and not self._looks_like_noisy_context(cleaned_context):
             words = cleaned_context.split()
@@ -272,7 +320,6 @@ class VocabularyExtractor:
                 if not self._looks_like_unrelated_context(normalized_word, cleaned_context, pos=pos):
                     return cleaned_context
 
-        # Fall back to a clean NLTK corpus sentence.
         return self.nltk_example_engine.get_example_sentence(normalized_word, fallback="")
 
     def _fetch_dictionary_info(self, word: str, context: str = "", pos: str = "") -> Dict[str, Any]:
@@ -283,61 +330,59 @@ class VocabularyExtractor:
         if cached is not None:
             return cached
 
-        # Insert the placeholder BEFORE building the example sentence. This
-        # breaks the potential fetch -> example -> unrelated-check -> fetch
-        # recursion when the lemma is absent from the context lemmas.
         info: Dict[str, Any] = {"definition": "", "synonyms": []}
         self._dictionary_cache[cache_key] = info
 
-        window_text = self._context_window(context, normalized_word, radius=5)
-        context_words = set(window_text.lower().split())
-
+        # Lookup in local custom dictionary first
         if self.dict_engine and hasattr(self.dict_engine, "lookup"):
             try:
                 offline_result = self.dict_engine.lookup(normalized_word)
                 if offline_result:
-                    if isinstance(offline_result, dict):
-                        if offline_result.get("definition"):
-                            info["definition"] = offline_result["definition"]
-                            info["synonyms"] = offline_result.get("synonyms", [])[:4]
+                    if isinstance(offline_result, dict) and offline_result.get("definition"):
+                        info["definition"] = offline_result["definition"]
+                        info["synonyms"] = offline_result.get("synonyms", [])[:4]
                     elif isinstance(offline_result, str):
                         info["definition"] = offline_result
             except Exception:
                 pass
 
+        # Advanced Embedding WSD via SentenceTransformers & WordNet
         if not info["definition"]:
             try:
+                import torch
+                from sentence_transformers import util
                 from nltk.corpus import wordnet
+
+                pos_map = {
+                    "NOUN": wordnet.NOUN,
+                    "VERB": wordnet.VERB,
+                    "ADJ": wordnet.ADJ,
+                    "ADV": wordnet.ADV,
+                }
+                target_pos = pos_map.get(pos.upper(), None)
                 synsets = self._wordnet_synsets(normalized_word)
+
+                if target_pos:
+                    filtered_synsets = [s for s in synsets if s.pos() == target_pos]
+                    if filtered_synsets:
+                        synsets = filtered_synsets
+
                 if synsets:
-                    preferred_synset = None
-                    best_score = -1.0
-                    pos_map = {
-                        "NOUN": wordnet.NOUN,
-                        "VERB": wordnet.VERB,
-                        "ADJ": wordnet.ADJ,
-                        "ADV": wordnet.ADV,
-                        "PROPN": wordnet.NOUN,
-                    }
-                    target_pos = pos_map.get(pos.upper(), None)
+                    preferred_synset = synsets[0]
 
-                    for syn in synsets:
-                        score = 0.0
-                        if target_pos is not None and syn.pos() == target_pos:
-                            score += 1.5
+                    # Perform Vector Space Semantic WSD using SentenceTransformers
+                    if self.embedding_model and len(synsets) > 1 and context:
+                        sense_profiles = [
+                            f"{syn.definition()} Example: {' '.join(syn.examples())}".strip()
+                            for syn in synsets
+                        ]
+                        
+                        ctx_emb = self.embedding_model.encode(context, convert_to_tensor=True)
+                        sense_embs = self.embedding_model.encode(sense_profiles, convert_to_tensor=True)
 
-                        # A7: windowed Lesk — overlap only with the local
-                        # context around the word, not the whole sentence.
-                        definition_words = set(syn.definition().lower().split())
-                        overlap = len(context_words & definition_words)
-                        score += overlap * 0.5
-
-                        if score > best_score:
-                            best_score = score
-                            preferred_synset = syn
-
-                    if preferred_synset is None:
-                        preferred_synset = synsets[0]
+                        cosine_scores = util.cos_sim(ctx_emb, sense_embs)[0]
+                        best_idx = int(torch.argmax(cosine_scores).item())
+                        preferred_synset = synsets[best_idx]
 
                     info["definition"] = preferred_synset.definition()
 
@@ -364,7 +409,7 @@ class VocabularyExtractor:
         tag = (token.tag_ or "").upper()
         pos = (token.pos_ or "").upper()
 
-        if tag.startswith(("NN", "NNS", "NNP", "NNPS")):
+        if tag.startswith(("NN", "NNS")):
             return "NOUN"
         if tag.startswith("VB"):
             return "VERB"
@@ -373,54 +418,50 @@ class VocabularyExtractor:
         if tag.startswith("RB"):
             return "ADV"
 
-        if pos in {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}:
+        if pos in {"NOUN", "VERB", "ADJ", "ADV"}:
             return pos
 
         return "NOUN"
 
     def _has_dictionary_meaning(self, word: str, pos: str = "") -> bool:
-        """Cached WordNet membership check (fast path for candidate filtering)."""
         normalized_word = word.lower()
         synsets = self._wordnet_synsets(normalized_word)
         if not synsets:
             return False
 
-        pos_map = {
-            "NOUN": "n", "VERB": "v", "ADJ": "a",
-            "ADV": "r", "PROPN": "n",
-        }
+        pos_map = {"NOUN": "n", "VERB": "v", "ADJ": "a", "ADV": "r"}
         target_tag = pos_map.get(pos.upper(), None)
         if target_tag is None:
             return True
         return any(syn.pos() == target_tag for syn in synsets)
 
     # ------------------------------------------------------------------
-    # Candidate extraction (single words + noun phrases)
+    # Candidate extraction (excluding non-learning terms)
     # ------------------------------------------------------------------
     def extract_candidates(self, text: str, doc=None) -> List[Dict[str, str]]:
         doc = doc if doc is not None else self._get_doc(text)
         candidates = []
         seen_lemmas = set()
-        target_pos = {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}
+        target_pos = {"NOUN", "VERB", "ADJ", "ADV"}
 
-        # Domain words in DOMAIN_CEFR are deliberately accepted even when
-        # WordNet has no entry (e.g. "jedi", "lightsaber") — otherwise the
-        # curated map could never apply to game/newspaper vocabulary.
-        def passes_wordnet_filter(lemma: str, pos: str) -> bool:
-            if lemma in DOMAIN_CEFR:
-                return True
+        def passes_candidate_filters(lemma: str, pos: str) -> bool:
+            if self._is_non_learning_word(lemma):
+                return False
             return self._has_dictionary_meaning(lemma, pos=pos)
 
         for token in doc:
             lemma = token.lemma_.lower()
             pos = self._normalize_token_pos(token)
+
+            # Strict filtering: Exclude PROPN (Proper Nouns) and Non-Learning terms
             if (
-                pos in target_pos
+                token.pos_ != "PROPN"
+                and pos in target_pos
                 and not token.is_stop
                 and token.is_alpha
                 and len(lemma) > 1
                 and lemma not in seen_lemmas
-                and passes_wordnet_filter(lemma, pos)
+                and passes_candidate_filters(lemma, pos)
             ):
                 candidates.append({
                     "lemma": lemma,
@@ -431,19 +472,18 @@ class VocabularyExtractor:
                 })
                 seen_lemmas.add(lemma)
 
-        # A6: multi-word candidates from POS-tag patterns (no parser needed).
         if self.matcher is not None:
             for _match_id, start, end in self.matcher(doc):
                 span = doc[start:end]
                 if not (2 <= len(span) <= 3):
                     continue
-                if not all(t.is_alpha for t in span):
+                if not all(t.is_alpha and t.pos_ != "PROPN" for t in span):
                     continue
                 if any(t.is_stop for t in span):
                     continue
 
                 phrase = "_".join(t.lemma_.lower() for t in span)
-                if phrase in seen_lemmas:
+                if phrase in seen_lemmas or self._is_non_learning_word(phrase):
                     continue
                 if not self._has_dictionary_meaning(phrase, pos="NOUN"):
                     continue
@@ -467,7 +507,6 @@ class VocabularyExtractor:
         if not candidate_words:
             return {}
 
-        # Embed phrases with spaces ("light saber") and map back to "_" form.
         kb_input = [w.replace("_", " ") for w in candidate_words]
         keywords = self.kw_model.extract_keywords(
             text,
@@ -486,16 +525,11 @@ class VocabularyExtractor:
 
     def get_cefr_level(self, lemma: str) -> str:
         score = self.get_cefr_score(lemma)
-        if score < 0.18:
-            return "A1"
-        if score < 0.36:
-            return "A2"
-        if score < 0.58:
-            return "B1"
-        if score < 0.78:
-            return "B2"
-        if score < 0.9:
-            return "C1"
+        if score < 0.18: return "A1"
+        if score < 0.36: return "A2"
+        if score < 0.58: return "B1"
+        if score < 0.78: return "B2"
+        if score < 0.9:  return "C1"
         return "C2"
 
     def get_cefr_score(self, lemma: str) -> float:
@@ -503,43 +537,31 @@ class VocabularyExtractor:
         if level is not None:
             return CEFR_LEVEL_SCORE.get(level, 0.7)
 
-        # Real frequency data beats a length guess: rare words map to harder
-        # levels, common words to easier ones.
         if self.wordfreq is not None:
             zipf = self.wordfreq(lemma.replace("_", " ").lower(), "en")
             return max(0.1, min(0.95, (7.5 - zipf) / 6.5))
 
         length = len(lemma)
-        if length <= 4:
-            score = 0.12
-        elif length <= 6:
-            score = 0.24
-        elif length <= 8:
-            score = 0.40
-        elif length <= 10:
-            score = 0.58
-        else:
-            score = 0.74
+        if length <= 4: score = 0.12
+        elif length <= 6: score = 0.24
+        elif length <= 8: score = 0.40
+        elif length <= 10: score = 0.58
+        else: score = 0.74
 
         if any(lemma.endswith(suffix) for suffix in ("tion", "ment", "ness", "ity", "ology", "ous", "able")):
             score += 0.08
-        if length >= 10:
-            score += 0.08
-        if length >= 12:
-            score += 0.06
+        if length >= 10: score += 0.08
+        if length >= 12: score += 0.06
 
         return min(max(score, 0.1), 0.95)
 
     def get_frequency_score(self, lemma: str) -> float:
         if self.wordfreq is not None:
             zipf = self.wordfreq(lemma.replace("_", " ").lower(), "en")
-            # Higher score = rarer word (keeps the original rarity direction).
             rarity = max(0.0, min(1.0, (7.5 - zipf) / 6.5))
             length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
             return min(rarity + length_bonus, 1.0)
 
-        # No wordfreq available: rarity falls back to a length heuristic,
-        # preferring longer, less common words.
         length_bonus = min(max(len(lemma) - 4, 0) * 0.05, 0.25)
         return min(0.45 + length_bonus, 0.9)
 
@@ -548,7 +570,7 @@ class VocabularyExtractor:
         content_tokens = [
             token.lemma_.lower()
             for token in doc
-            if token.is_alpha and not token.is_stop and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}
+            if token.is_alpha and not token.is_stop and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV"}
         ]
         if not content_tokens:
             return 0.0
@@ -570,8 +592,6 @@ class VocabularyExtractor:
                 for token in sent
                 if token.is_alpha and not token.is_stop
             }
-            # Single words match directly; phrases match when every component
-            # word appears in the sentence.
             return phrase_words <= sent_lemmas
 
         candidate_sentences = [sent for sent in doc.sents if sentence_matches(sent)]
@@ -584,7 +604,7 @@ class VocabularyExtractor:
             if token.is_alpha
             and not token.is_stop
             and token.lemma_.lower() in phrase_words
-            and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV", "PROPN"}
+            and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV"}
         )
         return min(sentence_bonus + min(content_overlap * 0.05, 0.15), 1.0)
 
@@ -597,7 +617,7 @@ class VocabularyExtractor:
 
     def get_pos_bonus(self, pos: str, lemma: str) -> float:
         pos_bonus = {
-            "NOUN": 0.15, "PROPN": 0.12, "VERB": 0.05, "ADJ": 0.05, "ADV": 0.02,
+            "NOUN": 0.15, "VERB": 0.05, "ADJ": 0.05, "ADV": 0.02,
         }
         length_bonus = min(max(len(lemma) - 4, 0) * 0.02, 0.10)
         return pos_bonus.get(pos, 0.0) + length_bonus
@@ -626,12 +646,12 @@ class VocabularyExtractor:
         candidates = self.extract_candidates(text, doc=doc)
         kb_scores = self.get_keybert_scores(text, candidates)
 
-        results = []
         learned_words = user_history.get("learned_words", {})
-        for cand in candidates:
+
+        def _score_candidate(cand):
             lemma = cand["lemma"]
             if lemma in learned_words:
-                continue
+                return None
 
             s_kb = self._normalize_score(kb_scores.get(lemma, 0.0), low=0.0, high=1.0)
             s_cefr = self.get_cefr_score(lemma)
@@ -651,7 +671,7 @@ class VocabularyExtractor:
                 weights["pos"] * s_pos
             )
 
-            results.append({
+            return {
                 "word": lemma,
                 "pos": cand["pos"],
                 "context_example": cand["context_example"],
@@ -667,7 +687,12 @@ class VocabularyExtractor:
                     "user_priority": round(s_user, 3),
                     "pos_bonus": round(s_pos, 3),
                 },
-            })
+            }
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            raw_results = list(executor.map(_score_candidate, candidates))
+        
+        results = [res for res in raw_results if res is not None]
 
         results.sort(key=lambda x: x["questlex_score"], reverse=True)
 
@@ -691,7 +716,7 @@ class VocabularyExtractor:
 
         top_results = results if (top_k is None or top_k >= len(results)) else results[:top_k]
 
-        for item in top_results:
+        def _enrich_result(item):
             dict_info = self._fetch_dictionary_info(
                 item["word"],
                 context=item["context_example"],
@@ -702,5 +727,9 @@ class VocabularyExtractor:
             item["context_example"] = dict_info["example_sentence"]
             item.setdefault("level", self.get_cefr_level(item["word"]))
             item.setdefault("mastery_score", 0.0)
+            return item
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            top_results = list(executor.map(_enrich_result, top_results))
 
         return top_results

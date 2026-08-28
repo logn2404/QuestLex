@@ -4,8 +4,6 @@ from pathlib import Path
 from revision_engine import RevisionEngine
 from flashcard_cli import run_flashcard_session, clear_screen
 import nltk
-
-# Import background model preloader
 from model_preloader import start_preload, get_ocr_engine, get_vocab_engine
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -51,13 +49,13 @@ def choose_user_level() -> str:
 def main():
     USER_ID = "user_dev_01"
 
+    start_preload()
+
     db = RevisionEngine(DB_DIR)
     selected_level = db.get_user_level(USER_ID)
     if selected_level is None:
         selected_level = choose_user_level()
         db.save_user_level(USER_ID, selected_level)
-
-    start_preload()
 
     while True:
         clear_screen()

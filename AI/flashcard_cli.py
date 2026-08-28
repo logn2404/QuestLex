@@ -2,7 +2,7 @@ import os
 import random
 import string
 from pathlib import Path
-from typing import Dict, List, Optional, Any  # <--- Bổ sung dòng này
+from typing import Dict, List, Optional, Any  
 from revision_engine import RevisionEngine
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -210,7 +210,7 @@ def run_practice_mode(user_id: str, method_choice: str):
                 print(f"🏆 Tổng số từ trả lời đúng liên tiếp: {score}")
                 break
 
-        elif method_choice == "2": # Matching (lấy batch 4 từ)
+        elif method_choice == "2": 
             batch = []
             for _ in range(4):
                 w = db.get_practice_word(user_id, recent_words)
