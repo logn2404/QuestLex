@@ -12,21 +12,22 @@ DB_DIR = PROJECT_DIR / "../user_history" / "vocab_app.db"
 
 class RevisionEngine:
     def __init__(self, db_path: str = DB_DIR):
-        self.db_path = db_path
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._conn = None
         self._init_db()
 
     def _get_connection(self):
-        if not hasattr(self, "_conn") or self._conn is None:
+        if self._conn is None:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         return self._conn
 
     def close(self):
         with self._lock:
-            conn = getattr(self, "_conn", None)
-            if conn is not None:
+            if self._conn is not None:
                 try:
-                    conn.close()
+                    self._conn.close()
                 finally:
                     self._conn = None
 
@@ -49,6 +50,7 @@ class RevisionEngine:
                     ease_factor REAL DEFAULT 2.5,
                     next_review_date TIMESTAMP,
                     created_at TIMESTAMP,
+                    vietnamese_meaning TEXT DEFAULT '',
                     PRIMARY KEY (user_id, word)
                 )
             """)
@@ -66,8 +68,20 @@ class RevisionEngine:
                 cursor.execute("ALTER TABLE user_vocabulary ADD COLUMN level TEXT DEFAULT 'A1'")
             if "mastery_score" not in columns:
                 cursor.execute("ALTER TABLE user_vocabulary ADD COLUMN mastery_score REAL DEFAULT 0.0")
+            if "vietnamese_meaning" not in columns:
+                cursor.execute("ALTER TABLE user_vocabulary ADD COLUMN vietnamese_meaning TEXT DEFAULT ''")
 
             conn.commit()
+
+    @staticmethod
+    def _safe_json_loads(data: Optional[str]) -> List[str]:
+        if not data:
+            return []
+        try:
+            res = json.loads(data)
+            return res if isinstance(res, list) else []
+        except Exception:
+            return []
 
     def save_user_level(self, user_id: str, level: str) -> None:
         now = datetime.now()
@@ -96,12 +110,12 @@ class RevisionEngine:
     def add_word_to_study(
         self, user_id: str, word: str, pos: str,
         definition: str = "", synonyms: List[str] = None, context_example: str = "",
-        level: str = "A1", mastery_score: float = 0.0
+        level: str = "A1", mastery_score: float = 0.0, vietnamese_meaning: str = ""
     ) -> bool:
         now = datetime.now()
         synonyms_str = json.dumps(synonyms) if synonyms else "[]"
         normalized_level = (level or "A1").upper()
-        word = word.lower()
+        word = word.lower().strip()
 
         with self._lock:
             conn = self._get_connection()
@@ -110,27 +124,25 @@ class RevisionEngine:
             cursor.execute("""
                 INSERT INTO user_vocabulary 
                 (user_id, word, pos, definition, synonyms, context_example, level, mastery_score,
-                 repetition_count, interval_days, ease_factor, next_review_date, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, ?)
+                 repetition_count, interval_days, ease_factor, next_review_date, created_at, vietnamese_meaning)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 2.5, ?, ?, ?)
                 ON CONFLICT(user_id, word) DO UPDATE SET
                     pos = excluded.pos,
                     definition = excluded.definition,
                     synonyms = excluded.synonyms,
                     context_example = excluded.context_example,
-                    level = excluded.level
+                    level = excluded.level,
+                    vietnamese_meaning = excluded.vietnamese_meaning
             """, (user_id, word, pos, definition, synonyms_str, context_example,
-                  normalized_level, round(float(mastery_score), 2), now, now))
+                  normalized_level, round(float(mastery_score), 2), now, now, vietnamese_meaning))
             conn.commit()
             return cursor.rowcount > 0
 
-    # ==========================================================
-    # CẬP NHẬT SM-2 VỚI LỊCH "THỜI GIẢN VÀNG ÔN TẬP"
-    # ==========================================================
     def review_word(self, user_id: str, word: str, quality: int) -> Dict[str, Any]:
         if quality not in [1, 2, 3, 4]:
             raise ValueError("Quality phải từ 1 đến 4.")
 
-        word = word.lower()
+        word = word.lower().strip()
         now = datetime.now()
 
         with self._lock:
@@ -150,19 +162,15 @@ class RevisionEngine:
             if quality < 3:
                 rep_count = 0
                 interval = 0
-                # Ôn lại sau 4 giờ (khung giờ vàng để ghi nhớ lại từ quên)
                 next_review = now + timedelta(hours=4)
             else:
                 if rep_count == 0:
-                    # Lần học đầu tiên thành công -> Ôn lại sau 6 giờ (khung giờ vàng cho não bộ)
                     next_review = now + timedelta(hours=6)
                     interval = 1
                 elif rep_count == 1:
-                    # Lần thứ 2 -> Tầm 24 giờ sau
                     next_review = now + timedelta(hours=24)
                     interval = 1
                 else:
-                    # Các lần tiếp theo theo chu kỳ Spaced Repetition
                     interval = int(interval * ease_factor)
                     if interval < 2:
                         interval = 2
@@ -193,20 +201,16 @@ class RevisionEngine:
             }
 
     def update_word_result(self, user_id: str, word: str, is_correct: bool):
-        """Cập nhật mastery cho bài tập Matching và Typing"""
-        word = word.lower()
+        word = word.lower().strip()
         quality = 3 if is_correct else 1
         return self.review_word(user_id, word, quality)
 
-    # ==========================================================
-    # LẤY TỪ CHO CHẾ ĐỘ STUDY (30 TỪ ĐẦU TIÊN CÓ MASTERY < 1.0)
-    # ==========================================================
     def get_study_words(self, user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
         with self._lock:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days, vietnamese_meaning
                 FROM user_vocabulary 
                 WHERE user_id = ? AND mastery_score < 1.0
                 ORDER BY next_review_date ASC, created_at ASC
@@ -219,40 +223,35 @@ class RevisionEngine:
                     "word": r[0],
                     "pos": r[1],
                     "definition": r[2],
-                    "synonyms": json.loads(r[3]) if r[3] else [],
+                    "synonyms": self._safe_json_loads(r[3]),
                     "context_example": r[4],
                     "level": r[5],
                     "mastery": r[6],
-                    "interval_days": r[7]
+                    "interval_days": r[7],
+                    "vietnamese_meaning": r[8] or ""
                 }
                 for r in rows
             ]
 
-    # ==========================================================
-    # LẤY TỪ CHO CHẾ ĐỘ PRACTICE (ENDLESS VỚI TỈ LỆ TRỌNG SỐ)
-    # ==========================================================
     def get_practice_word(self, user_id: str, recent_words: List[str]) -> Optional[Dict[str, Any]]:
         with self._lock:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            # Group 1: Chưa ôn / Đang học (mastery < 1.0)
             cursor.execute("""
-                SELECT word, pos, definition, synonyms, context_example, level, mastery_score
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, vietnamese_meaning
                 FROM user_vocabulary WHERE user_id = ? AND mastery_score < 1.0
             """, (user_id,))
             unreviewed_pool = cursor.fetchall()
 
-            # Group 2: Từ mastered (mastery >= 1.0)
             cursor.execute("""
-                SELECT word, pos, definition, synonyms, context_example, level, mastery_score
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, vietnamese_meaning
                 FROM user_vocabulary WHERE user_id = ? AND mastery_score >= 1.0
             """, (user_id,))
             mastered_pool = cursor.fetchall()
 
-            # Group 3: Tất cả từ trong kho
             cursor.execute("""
-                SELECT word, pos, definition, synonyms, context_example, level, mastery_score
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, vietnamese_meaning
                 FROM user_vocabulary WHERE user_id = ?
             """, (user_id,))
             all_inventory = cursor.fetchall()
@@ -260,36 +259,37 @@ class RevisionEngine:
             if not all_inventory:
                 return None
 
+            # Lọc bỏ các từ vừa ôn gần đây
+            unreviewed_fresh = [r for r in unreviewed_pool if r[0] not in recent_words]
+            mastered_fresh = [r for r in mastered_pool if r[0] not in recent_words]
+            all_fresh = [r for r in all_inventory if r[0] not in recent_words]
+
             selected_row = None
 
-            # Nếu còn từ chưa ôn/học chưa thuộc
             if unreviewed_pool:
-                # Tỉ lệ 70% chưa ôn, 20% vừa ôn, 10% mastered
                 rand = random.random()
                 if rand < 0.70:
-                    selected_row = random.choice(unreviewed_pool)
+                    pool = unreviewed_fresh or unreviewed_pool
+                    selected_row = random.choice(pool)
                 elif rand < 0.90:
-                    recent_pool = [r for r in all_inventory if r[0] in recent_words]
-                    selected_row = random.choice(recent_pool) if recent_pool else random.choice(unreviewed_pool)
+                    pool = all_fresh or all_inventory
+                    selected_row = random.choice(pool)
                 else:
-                    selected_row = random.choice(mastered_pool) if mastered_pool else random.choice(unreviewed_pool)
+                    pool = mastered_fresh or mastered_pool or unreviewed_pool
+                    selected_row = random.choice(pool)
             else:
-                # Khi đã hết từ chưa ôn -> 60% kho chung (inventory), 40% từ vừa ôn
-                rand = random.random()
-                if rand < 0.60:
-                    selected_row = random.choice(all_inventory)
-                else:
-                    recent_pool = [r for r in all_inventory if r[0] in recent_words]
-                    selected_row = random.choice(recent_pool) if recent_pool else random.choice(all_inventory)
+                pool = all_fresh or all_inventory
+                selected_row = random.choice(pool)
 
             return {
                 "word": selected_row[0],
                 "pos": selected_row[1],
                 "definition": selected_row[2],
-                "synonyms": json.loads(selected_row[3]) if selected_row[3] else [],
+                "synonyms": self._safe_json_loads(selected_row[3]),
                 "context_example": selected_row[4],
                 "level": selected_row[5],
-                "mastery": selected_row[6]
+                "mastery": selected_row[6],
+                "vietnamese_meaning": selected_row[7] or ""
             }
 
     def get_all_user_history(self, user_id: str) -> List[Dict[str, Any]]:
@@ -298,7 +298,7 @@ class RevisionEngine:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days, repetition_count, next_review_date, created_at
+                SELECT word, pos, definition, synonyms, context_example, level, mastery_score, interval_days, repetition_count, next_review_date, created_at, vietnamese_meaning
                 FROM user_vocabulary
                 WHERE user_id = ?
                 ORDER BY level ASC, word ASC
@@ -311,14 +311,15 @@ class RevisionEngine:
                     "word": r[0],
                     "pos": r[1],
                     "definition": r[2],
-                    "synonyms": json.loads(r[3]) if r[3] else [],
+                    "synonyms": self._safe_json_loads(r[3]),
                     "context_example": r[4],
                     "level": r[5],
                     "mastery": r[6],
                     "interval_days": r[7],
                     "repetition_count": r[8],
                     "next_review_date": r[9],
-                    "created_at": r[10]
+                    "created_at": r[10],
+                    "vietnamese_meaning": r[11] or ""
                 }
                 for r in rows
             ]

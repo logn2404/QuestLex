@@ -1,9 +1,10 @@
 import os
 import re
 import threading
+import json
 from collections import Counter
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 
@@ -14,6 +15,7 @@ MODELS_DIR = PROJECT_DIR / "models"
 NLTK_DATA_DIR = MODELS_DIR / "nltk_data" 
 KEYBERT_MODEL_DIR = MODELS_DIR / "keybert" / "all-MiniLM-L6-v2" 
 CEFR_TSV_PATH = MODELS_DIR / "wordlists" / "cefr.tsv" 
+EN_VI_DICT_PATH = MODELS_DIR / "en_vi_dict.json"
 
 DEFAULT_WEIGHTS = {
     "keybert": 0.25,
@@ -102,7 +104,9 @@ class VocabularyExtractor:
         self.dict_engine = None 
         self.nltk_example_engine = None 
         self._dictionary_cache: Dict[str, Dict[str, Any]] = {} 
-        self._doc_cache: Dict[str, "object"] = {} 
+        self._doc_cache: Dict[str, Any] = {} 
+        self._cache_lock = threading.Lock()
+        self._doc_lock = threading.Lock()
         self.cefr_map = _load_cefr_map() 
         self.wordfreq = _load_wordfreq() 
 
@@ -116,7 +120,14 @@ class VocabularyExtractor:
             from spacy.matcher import Matcher
             import nltk
             import torch
-            from offline_dictionary import LargeOfflineDictionary
+
+            try:
+                from offline_dictionary import LargeOfflineDictionary
+            except ImportError:
+                try:
+                    from offline_dictionary_2 import LargeOfflineDictionary
+                except ImportError:
+                    LargeOfflineDictionary = None
 
             ensure_model_paths() 
             if str(NLTK_DATA_DIR) not in nltk.data.path:
@@ -136,7 +147,8 @@ class VocabularyExtractor:
             self.matcher = Matcher(self.nlp.vocab) 
             self.matcher.add("NOUN_PHRASES", PHRASE_PATTERNS) 
 
-            self.dict_engine = LargeOfflineDictionary() 
+            if LargeOfflineDictionary:
+                self.dict_engine = LargeOfflineDictionary() 
             self.nltk_example_engine = NLTKExampleExtractor(min_words=6, max_words=16) 
 
             self.embedding_model = SentenceTransformer(str(KEYBERT_MODEL_DIR), device=device) 
@@ -152,13 +164,15 @@ class VocabularyExtractor:
         self._ready_event.wait() 
 
     def _get_doc(self, text: str):
-        cache_key = text 
-        doc = self._doc_cache.get(cache_key) 
+        cache_key = text[:MAX_DOC_CHARS]
+        with self._doc_lock:
+            doc = self._doc_cache.get(cache_key) 
         if doc is None:
-            if len(self._doc_cache) > 64:
-                self._doc_cache.clear() 
-            doc = self.nlp(text[:MAX_DOC_CHARS]) 
-            self._doc_cache[cache_key] = doc 
+            doc = self.nlp(cache_key) 
+            with self._doc_lock:
+                if len(self._doc_cache) > 64:
+                    self._doc_cache.clear() 
+                self._doc_cache[cache_key] = doc 
         return doc 
 
     def _merge_weights(self, weights: Dict[str, float] | None) -> Dict[str, float]:
@@ -181,9 +195,23 @@ class VocabularyExtractor:
     def _wordnet_synsets(word: str):
         try:
             from nltk.corpus import wordnet
-            return wordnet.synsets(word) 
+            synsets = wordnet.synsets(word)
+            if not synsets and "_" in word:
+                synsets = wordnet.synsets(word.replace("_", " "))
+            return synsets
         except Exception:
             return [] 
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _load_en_vi_dict() -> Dict[str, Any]:
+        if EN_VI_DICT_PATH.exists():
+            try:
+                with EN_VI_DICT_PATH.open("r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
 
     @classmethod
     @lru_cache(maxsize=16384)
@@ -212,93 +240,69 @@ class VocabularyExtractor:
 
         return all_excluded 
 
-    # ------------------------------------------------------------------
-    # ENHANCED: Context Quality Checks
-    # ------------------------------------------------------------------
     def _looks_like_noisy_context(self, context: str) -> bool:
-        """Enhanced noise detection: regex patterns, syntax, spaCy ROOT verb, and wordfreq OOV ratio."""
-        cleaned = context.strip()
-        if not cleaned:
+        cleaned_context = context.strip()
+        if not cleaned_context:
             return True
 
-        words = cleaned.split()
-        if len(words) < 4 or len(words) > 40:
+        doc = self._get_doc(cleaned_context)
+        content_tokens = [
+            token.lemma_.lower()
+            for token in doc
+            if token.is_alpha and not token.is_stop and token.pos_ in {"NOUN", "VERB", "ADJ", "ADV"}
+        ]
+
+        if len(content_tokens) < 2:
             return True
 
-        # Detect code blocks, URLs, markdown, or double-symbol artifacts
-        code_or_url_pattern = r"(https?://\S+|```|\b(def|class|import|return|function|var|val|const|include|void)\b|[\{\}\[\]\\/<>_=]{2,})"
-        if re.search(code_or_url_pattern, cleaned, re.IGNORECASE):
-            return True
-
-        # Alpha character ratio threshold
-        alpha_count = sum(1 for c in cleaned if c.isalpha())
-        if alpha_count / max(len(cleaned), 1) < 0.65:
-            return True
-
-        # Uppercase anomaly threshold
-        upper_count = sum(1 for c in cleaned if c.isupper())
-        if upper_count / max(alpha_count, 1) > 0.45:
-            return True
-
-        doc = self._get_doc(cleaned)
-
-        # Repetition ratio check
-        lemmas = [t.lemma_.lower() for t in doc if t.is_alpha]
-        if lemmas and (len(set(lemmas)) / len(lemmas)) < 0.4:
-            return True
-
-        # Structural completeness: Must contain a main ROOT verb
-        has_root_verb = any(t.dep_ == "ROOT" and t.pos_ in {"VERB", "AUX"} for t in doc)
-        if not has_root_verb:
-            return True
-
-        # Out-of-vocabulary (OOV) ratio check via wordfreq
-        if self.wordfreq is not None:
-            valid_tokens = [t.text.lower() for t in doc if t.is_alpha and not t.is_stop]
-            if valid_tokens:
-                oov_count = sum(1 for token in valid_tokens if self.wordfreq(token, "en") == 0)
-                if (oov_count / len(valid_tokens)) > 0.35:
+        short_word_blacklist = {
+            "aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii", "jj", "kk",
+            "ll", "mm", "nn", "oo", "pp", "qq", "rr", "ss", "tt", "uu", "vv",
+            "ww", "xx", "yy", "zz", "xzq",
+        }
+        for token in doc:
+            if token.is_alpha and len(token.text) <= 2 and token.text.lower() not in {"to", "in", "on", "of", "or", "an", "at", "be", "is", "it"}:
+                if token.text.lower() in short_word_blacklist:
                     return True
 
         return False
 
     def _looks_like_unrelated_context(self, word: str, context: str, pos: str = "") -> bool:
-        """Enhanced context validation using SentenceTransformer Cosine Similarity and spaCy lemmatization."""
         cleaned_context = context.strip()
         if not cleaned_context or self._looks_like_noisy_context(cleaned_context):
             return True
 
-        doc_context = self._get_doc(cleaned_context)
-        context_lemmas = {t.lemma_.lower() for t in doc_context if t.is_alpha}
+        normalized_word = word.lower()
+        context_words = {
+            token.lemma_.lower()
+            for token in self._get_doc(cleaned_context)
+            if token.is_alpha and not token.is_stop
+        }
+        if not context_words:
+            return True
 
-        target_doc = self.nlp(word.lower())
-        target_lemmas = [t.lemma_.lower() for t in target_doc if t.is_alpha]
-        contains_target = all(lemma in context_lemmas for lemma in target_lemmas)
+        word_forms = {
+            normalized_word,
+            normalized_word.rstrip("s"),
+            normalized_word.rstrip("es"),
+        }
+        if word_forms & context_words:
+            return False
 
-        if self.embedding_model is not None:
-            try:
-                from sentence_transformers import util
+        dictionary_info = self._fetch_dictionary_info(normalized_word, context=cleaned_context, pos=pos)
+        definition = (dictionary_info.get("definition") or "").lower()
+        if not definition:
+            return True
 
-                dict_info = self._fetch_dictionary_info(word, context="", pos=pos)
-                definition = dict_info.get("definition", "")
-                target_text = f"{word}: {definition}" if definition else word
+        definition_terms = {
+            term for term in re.findall(r"[a-z']+", definition)
+            if len(term) > 2 and term not in {"with", "from", "into", "this", "that"}
+        }
+        if not definition_terms:
+            return True
 
-                emb_context = self.embedding_model.encode(cleaned_context, convert_to_tensor=True)
-                emb_target = self.embedding_model.encode(target_text, convert_to_tensor=True)
-
-                similarity = float(util.cos_sim(emb_context, emb_target)[0][0].item())
-
-                if contains_target and similarity >= 0.25:
-                    return False
-
-                if similarity < 0.28:
-                    return True
-
-                return similarity < 0.30
-            except Exception:
-                pass
-
-        return not contains_target
+        overlap = len(context_words & definition_terms)
+        return overlap < 1
 
     def build_example_sentence(self, word: str, context: str = "", pos: str = "") -> str:
         normalized_word = word.lower()
@@ -310,31 +314,45 @@ class VocabularyExtractor:
                 if not self._looks_like_unrelated_context(normalized_word, cleaned_context, pos=pos):
                     return cleaned_context
 
-        return self.nltk_example_engine.get_example_sentence(normalized_word, fallback="") 
+        if self.nltk_example_engine:
+            return self.nltk_example_engine.get_example_sentence(normalized_word, fallback="") 
+        return context
 
     def _fetch_dictionary_info(self, word: str, context: str = "", pos: str = "") -> Dict[str, Any]:
-        normalized_word = word.lower() 
+        normalized_word = word.lower().strip() 
         cache_key = f"{normalized_word}|{pos}|{context.lower()}" 
 
-        cached = self._dictionary_cache.get(cache_key) 
-        if cached is not None:
-            return cached 
+        with self._cache_lock:
+            cached = self._dictionary_cache.get(cache_key) 
+            if cached is not None:
+                return cached 
 
-        info: Dict[str, Any] = {"definition": "", "synonyms": []} 
-        self._dictionary_cache[cache_key] = info 
+        info: Dict[str, Any] = {"definition": "", "synonyms": [], "vietnamese_meaning": "Không có"} 
 
+        # 1. Tra nghĩa tiếng Việt từ file json
+        en_vi_dict = self._load_en_vi_dict()
+        vi_meanings = en_vi_dict.get(normalized_word) or en_vi_dict.get(normalized_word.replace("_", " "))
+        if vi_meanings:
+            if isinstance(vi_meanings, list):
+                info["vietnamese_meaning"] = ", ".join(vi_meanings[:3])
+            elif isinstance(vi_meanings, str):
+                info["vietnamese_meaning"] = vi_meanings
+
+        # 2. Tra qua dict_engine
         if self.dict_engine and hasattr(self.dict_engine, "lookup"):
             try:
                 offline_result = self.dict_engine.lookup(normalized_word) 
-                if offline_result:
-                    if isinstance(offline_result, dict) and offline_result.get("definition"):
+                if offline_result and isinstance(offline_result, dict):
+                    if offline_result.get("definition"):
                         info["definition"] = offline_result["definition"] 
+                    if offline_result.get("synonyms"):
                         info["synonyms"] = offline_result.get("synonyms", [])[:4] 
-                    elif isinstance(offline_result, str):
-                        info["definition"] = offline_result 
+                    if (info["vietnamese_meaning"] == "Không có" or not info["vietnamese_meaning"]) and offline_result.get("vietnamese_meaning"):
+                        info["vietnamese_meaning"] = offline_result["vietnamese_meaning"]
             except Exception:
                 pass
 
+        # 3. WordNet disambiguation
         if not info["definition"]:
             try:
                 import torch
@@ -371,7 +389,7 @@ class VocabularyExtractor:
                     synonyms_set = set()
                     for lemma in preferred_synset.lemmas(): 
                         syn_name = lemma.name().replace('_', ' ') 
-                        if syn_name.lower() != normalized_word:
+                        if syn_name.lower() != normalized_word and syn_name.lower() != normalized_word.replace("_", " "):
                             synonyms_set.add(syn_name) 
                     info["synonyms"] = list(synonyms_set)[:4] 
             except Exception:
@@ -385,6 +403,10 @@ class VocabularyExtractor:
             context=context,
             pos=pos,
         ) 
+
+        with self._cache_lock:
+            self._dictionary_cache[cache_key] = info
+
         return info 
 
     def _normalize_token_pos(self, token: Any) -> str:
@@ -589,10 +611,10 @@ class VocabularyExtractor:
         self,
         text: str,
         user_history: Dict[str, Any],
-        top_k: int | None = 5,
+        top_k: Optional[int] = 5,
         weights: Dict[str, float] = None,
-        score_threshold: float | None = None,
-        level: str | None = None
+        score_threshold: Optional[float] = None,
+        level: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         self._wait_for_ready() 
 
@@ -648,7 +670,6 @@ class VocabularyExtractor:
             raw_results = list(executor.map(_score_candidate, candidates)) 
         
         results = [res for res in raw_results if res is not None] 
-        results.sort(key=lambda x: x["questlex_score"], reverse=True) 
 
         if score_threshold is not None:
             results = [item for item in results if item["questlex_score"] >= score_threshold] 
@@ -676,6 +697,7 @@ class VocabularyExtractor:
             ) 
             item["definition"] = dict_info["definition"] 
             item["synonyms"] = dict_info["synonyms"] 
+            item["vietnamese_meaning"] = dict_info["vietnamese_meaning"]
             item["context_example"] = dict_info["example_sentence"] 
             item.setdefault("level", self.get_cefr_level(item["word"])) 
             item.setdefault("mastery_score", 0.0) 
@@ -684,4 +706,4 @@ class VocabularyExtractor:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             top_results = list(executor.map(_enrich_result, top_results)) 
 
-        return top_results 
+        return top_results

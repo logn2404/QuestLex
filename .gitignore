@@ -23,7 +23,7 @@ ENV/
 
 # Model downloads and large AI assets
 AI/models/**
-AI/__pycache__/
+!AI/models/anhviet109K.txt
 
 # Jupyter / notebooks
 .ipynb_checkpoints/

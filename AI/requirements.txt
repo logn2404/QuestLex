@@ -11,6 +11,7 @@ wordninja>=2.0.0
 pyspellchecker>=0.7.0
 spacy>=3.6.0
 wordfreq>=2.4.0
+deep-translator>=1.11.0
 
 # Optional: download the spaCy model used by vocab_extractor.py
 # python -m spacy download en_core_web_sm

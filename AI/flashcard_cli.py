@@ -17,6 +17,7 @@ def clear_screen():
 def play_flashcard_item(db: RevisionEngine, user_id: str, item: Dict) -> bool:
     word = item["word"]
     synonyms_str = ", ".join(item.get("synonyms", [])) if item.get("synonyms") else "N/A"
+    vi_meaning = item.get("vietnamese_meaning") or "N/A"
     
     print("==========================================")
     print(f"📌 TỪ VỰNG:   [{word.upper()}]")
@@ -24,12 +25,13 @@ def play_flashcard_item(db: RevisionEngine, user_id: str, item: Dict) -> bool:
     input("🤔 Cố gắng nhớ nghĩa và nhấn [Enter] để lật thẻ...")
     
     print("\n---------------- LỜI GIẢI ----------------")
-    print(f"📊 Level     : {item.get('level', 'N/A')}")
-    print(f"📌 Loại từ   : {item.get('pos', 'N/A')}")
-    print(f"📖 Định nghĩa: {item.get('definition', 'N/A')}")
-    print(f"🔗 Đồng nghĩa: {synonyms_str}")
-    print(f"📝 Ví dụ     : \"{item.get('context_example', 'N/A')}\"")
-    print(f"📈 Mastery   : {round(item.get('mastery', 0.0)*100)}%")
+    print(f"📊 Level        : {item.get('level', 'N/A')}")
+    print(f"📌 Loại từ      : {item.get('pos', 'N/A')}")
+    print(f"🇻🇳 Nghĩa TV     : {vi_meaning}")
+    print(f"📖 Định nghĩa   : {item.get('definition', 'N/A')}")
+    print(f"🔗 Đồng nghĩa   : {synonyms_str}")
+    print(f"📝 Ví dụ        : \"{item.get('context_example', 'N/A')}\"")
+    print(f"📈 Mastery      : {round(item.get('mastery', 0.0)*100)}%")
     print("------------------------------------------\n")
     
     print("Đánh giá độ khó:")
@@ -45,11 +47,11 @@ def play_flashcard_item(db: RevisionEngine, user_id: str, item: Dict) -> bool:
                 break
             print("⚠️ Nhập số từ 1 đến 4.")
         except ValueError:
-            print("⚠️ Lỗi nhập liệu.")
+            print("⚠️ Lỗi nhập liệu. Vui lòng nhập số.")
             
     res = db.review_word(user_id, word, quality=choice)
     print(f"✅ Đã lưu! Lần ôn tiếp theo: {res['next_review_date']}")
-    return choice >= 2  # Coi như trả lời đúng/nhớ nếu rating >= 2
+    return choice >= 2  # Coi như nhớ bài nếu rating >= 2
 
 # ==========================================================
 # PHƯƠNG PHÁP 2: MATCHING (NỐI TỪ - ĐỊNH NGHĨA & ĐỒNG NGHĨA)
@@ -66,8 +68,10 @@ def play_matching_round(db: RevisionEngine, user_id: str, batch: List[Dict]) -> 
     
     defs = []
     for item in batch:
+        vi_val = item.get('vietnamese_meaning', '')
+        vi = f" (Nghĩa TV: {vi_val})" if vi_val and vi_val != "Không có" else ""
         syns = f" (Đồng nghĩa: {', '.join(item['synonyms'])})" if item.get('synonyms') else ""
-        defs.append((item["word"], f"{item['definition']}{syns}"))
+        defs.append((item["word"], f"{item.get('definition', '')}{vi}{syns}"))
     
     shuffled_defs = defs.copy()
     random.shuffle(shuffled_defs)
@@ -78,11 +82,11 @@ def play_matching_round(db: RevisionEngine, user_id: str, batch: List[Dict]) -> 
     for idx, w in enumerate(shuffled_words, 1):
         print(f"  [{idx}] {w.upper()}")
         
-    print("\n---- CỘT ĐỊNH NGHĨA & ĐỒNG NGHĨA ----")
+    print("\n---- CỘT ĐỊNH NGHĨA, NGHĨA TIẾNG VIỆT & ĐỒNG NGHĨA ----")
     for idx, (target_w, d_text) in enumerate(shuffled_defs):
         print(f"  [{letters[idx]}] {d_text}")
         
-    print("\n👉 Hãy ghép nối theo dạng: 1A, 2C, 3B...")
+    print("\n👉 Hãy ghép nối tương ứng từng số với chữ cái phù hợp.")
     all_correct = True
     
     for idx, w in enumerate(shuffled_words, 1):
@@ -111,13 +115,15 @@ def play_typing_item(db: RevisionEngine, user_id: str, item: Dict) -> bool:
     clear_screen()
     word = item["word"]
     synonyms_str = ", ".join(item.get("synonyms", [])) if item.get("synonyms") else "Không có"
+    vi_meaning = item.get("vietnamese_meaning") or "Không có"
     
     print("==========================================")
     print("⌨️ BÀI TẬP GÕ TỪ (TYPING PRACTICE)")
     print("==========================================\n")
-    print(f"📖 Định nghĩa: {item.get('definition')}")
-    print(f"🔗 Đồng nghĩa: {synonyms_str}")
-    print(f"💡 Gợi ý    : Loại từ [{item.get('pos')}] | Độ dài: {len(word)} ký tự")
+    print(f"🇻🇳 Nghĩa TV   : {vi_meaning}")
+    print(f"📖 Định nghĩa : {item.get('definition', 'N/A')}")
+    print(f"🔗 Đồng nghĩa : {synonyms_str}")
+    print(f"💡 Gợi ý      : Loại từ [{item.get('pos', 'N/A')}] | Độ dài: {len(word)} ký tự")
     print("------------------------------------------")
     
     user_input = input("\n👉 Nhập từ vựng chính xác: ").strip().lower()
@@ -162,13 +168,16 @@ def run_study_mode(user_id: str, method_choice: str):
             batch = words[i:i+batch_size]
             if len(batch) >= 2:
                 play_matching_round(db, user_id, batch)
+            elif len(batch) == 1:
+                # Nếu dư 1 từ ở cuối, fallback sang gõ từ để không bỏ sót
+                play_typing_item(db, user_id, batch[0])
                 
     elif method_choice == "3": # Typing
         for item in words:
             play_typing_item(db, user_id, item)
             
     clear_screen()
-    print("🎉 BẠN ĐÃ HOÀN THÀNH PHIÊN STUDY 30 TỪ!")
+    print(f"🎉 BẠN ĐÃ HOÀN THÀNH PHIÊN STUDY ({len(words)} TỪ)!")
     input("\nNhấn [Enter] để quay lại menu...")
 
 # ==========================================================
@@ -176,7 +185,7 @@ def run_study_mode(user_id: str, method_choice: str):
 # ==========================================================
 def run_practice_mode(user_id: str, method_choice: str):
     db = RevisionEngine(DB_DIR)
-    recent_words = []
+    recent_words: List[str] = []
     score = 0
 
     clear_screen()
@@ -210,17 +219,23 @@ def run_practice_mode(user_id: str, method_choice: str):
                 print(f"🏆 Tổng số từ trả lời đúng liên tiếp: {score}")
                 break
 
-        elif method_choice == "2": 
+        elif method_choice == "2": # Matching
             batch = []
-            for _ in range(4):
+            attempts = 0
+            while len(batch) < 4 and attempts < 15:
+                attempts += 1
                 w = db.get_practice_word(user_id, recent_words)
                 if w and w["word"] not in [b["word"] for b in batch]:
                     batch.append(w)
-                    recent_words.append(w["word"])
 
             if len(batch) < 2:
                 print("⚠️ Không đủ dữ liệu từ vựng để chơi bài tập Nối!")
                 break
+
+            for b_item in batch:
+                recent_words.append(b_item["word"])
+                if len(recent_words) > 10:
+                    recent_words.pop(0)
 
             all_correct = play_matching_round(db, user_id, batch)
             if all_correct:
