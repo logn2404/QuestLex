@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import '../data/fake_streak_repository.dart';
-
-enum StreakViewMode { growthChart, topVocabTable, activityHeatmap }
+import '../data/streak_repository.dart';
 
 class StreakController extends ChangeNotifier {
-  final FakeStreakRepository _repository;
+  final StreakRepository _repository;
 
-  StreakController({required this._repository}) {
+  StreakController({required StreakRepository repository})
+      : _repository = repository {
     loadData();
   }
 
@@ -15,9 +14,6 @@ class StreakController extends ChangeNotifier {
 
   StreakData? _streakData;
   StreakData? get streakData => _streakData;
-
-  StreakViewMode _currentMode = StreakViewMode.growthChart;
-  StreakViewMode get currentMode => _currentMode;
 
   Future<void> loadData() async {
     _isLoading = true;
@@ -28,8 +24,4 @@ class StreakController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setViewMode(StreakViewMode mode) {
-    _currentMode = mode;
-    notifyListeners();
-  }
 }

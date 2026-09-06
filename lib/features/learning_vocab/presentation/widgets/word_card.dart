@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../domain/models/learning_vocab_item.dart';
 
 class WordCard extends StatelessWidget {
@@ -6,6 +7,7 @@ class WordCard extends StatelessWidget {
   final bool isSelectionMode;
   final bool isSelected;
   final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
 
   const WordCard({
     super.key,
@@ -13,15 +15,16 @@ class WordCard extends StatelessWidget {
     this.isSelectionMode = false,
     this.isSelected = false,
     this.onTap,
+    this.onDoubleTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      onDoubleTap: onDoubleTap,
       child: Card(
         elevation: isSelected ? 3 : 1,
         shape: RoundedRectangleBorder(
@@ -76,7 +79,7 @@ class WordCard extends StatelessWidget {
                 ],
               ),
               Text(
-                item.meaning,
+                item.meaning.isNotEmpty ? item.meaning : 'Chưa có mô tả chi tiết',
                 style: theme.textTheme.bodyMedium,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,

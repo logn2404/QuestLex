@@ -3,129 +3,118 @@ import '../../domain/models/daily_cefr_count.dart';
 
 class CefrBarChart extends StatelessWidget {
   final List<DailyCEFRCount> data;
-
   const CefrBarChart({super.key, required this.data});
+
+  static const Map<String, Color> cefrColors = {
+    'A1': Color(0xFF32284C), 'A2': Color(0xFF4A3B6B),
+    'B1': Color(0xFF6750A4), 'B2': Color(0xFF8F76D6),
+    'C1': Color(0xFFB69DF8), 'C2': Color(0xFFD0BCFF),
+  };
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
-
-    // Tông màu đậm nhạt tăng dần theo trình độ CEFR từ A1 -> C2 (Dùng withValues chuẩn Flutter mới)
-    final Map<String, Color> cefrShades = {
-      'A1': primaryColor.withValues(alpha: 0.25),
-      'A2': primaryColor.withValues(alpha: 0.40),
-      'B1': primaryColor.withValues(alpha: 0.55),
-      'B2': primaryColor.withValues(alpha: 0.70),
-      'C1': primaryColor.withValues(alpha: 0.85),
-      'C2': primaryColor,
-    };
-
-    final maxCount = data.fold<int>(1, (max, item) => item.total > max ? item.total : max);
+    int maxTotal = 0;
+    for (var item in data) {
+      int total = item.countsByLevel.values.fold(0, (sum, c) => sum + c);
+      if (total > maxTotal) maxTotal = total;
+    }
+    if (maxTotal == 0) maxTotal = 1;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, // Giới hạn chiều cao Column
       children: [
-        // Danh sách các thanh Bar ngang
         ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
+          shrinkWrap: true, // 🛠️ QUAN TRỌNG: Fix lỗi Unbounded Height
+          physics: const NeverScrollableScrollPhysics(), // Dùng cuộn của trang chính
+          padding: EdgeInsets.zero,
           itemCount: data.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final item = data[index];
-            final widthFactor = (item.total / maxCount).clamp(0.02, 1.0);
-
+            int total = item.countsByLevel.values.fold(0, (sum, c) => sum + c);
             return Row(
               children: [
-                // 1. Nhãn thời gian (T2, T3... / Jan, Feb...)
-                SizedBox(
-                  width: 32,
-                  child: Text(
-                    item.label,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                SizedBox(width: 32, child: Text(item.label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+                SizedBox(width: 24, child: Text('$total', style: const TextStyle(color: Colors.white54, fontSize: 11))),
+                const SizedBox(width: 6),
+                Expanded( // Expanded ở đây hợp lệ vì nằm trong Row có kích thước ngang
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      height: 14,
+                      child: CustomPaint(painter: CefrBarPainter(countsByLevel: item.countsByLevel, maxTotal: maxTotal)),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                // 2. Thanh Bar ngang tự dãn 100% theo chiều rộng Cột Trái
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Chừa khoảng 28px cho Text hiển thị tổng số từ ở bên phải thanh bar
-                      final availableWidth = constraints.maxWidth - 28;
-                      final barWidth = (availableWidth * widthFactor).clamp(4.0, availableWidth);
-
-                      return Row(
-                        children: [
-                          Container(
-                            height: 16,
-                            width: barWidth,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: Row(
-                              children: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map((level) {
-                                int count = item.countsByLevel[level] ?? 0;
-                                if (count == 0) return const SizedBox.shrink();
-
-                                return Container(
-                                  width: (count / (item.total > 0 ? item.total : 1)) * barWidth,
-                                  color: cefrShades[level],
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Tổng số từ
-                          Text(
-                            '${item.total}',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: theme.hintColor,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
                   ),
                 ),
               ],
             );
           },
         ),
-        const SizedBox(height: 16),
-
-        // Chú thích (Legend)
-        Wrap(
-          spacing: 12,
-          runSpacing: 6,
-          children: cefrShades.entries.map((entry) {
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: entry.value,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  entry.key,
-                  style: theme.textTheme.labelSmall?.copyWith(fontSize: 11),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
+        const SizedBox(height: 12),
+        _buildLegend(),
       ],
     );
+  }
+
+  Widget _buildLegend() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: cefrColors.entries.map((e) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 8, height: 8, decoration: BoxDecoration(color: e.value, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 4),
+          Text(e.key, style: const TextStyle(color: Colors.white54, fontSize: 9)),
+        ],
+      )).toList(),
+    );
+  }
+}
+
+class CefrBarPainter extends CustomPainter {
+  final Map<String, int> countsByLevel;
+  final int maxTotal;
+
+  CefrBarPainter({required this.countsByLevel, required this.maxTotal});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    int total = countsByLevel.values.fold(0, (sum, c) => sum + c);
+
+    if (total == 0) {
+      final bgPaint = Paint()..color = Colors.white.withValues(alpha: 0.04);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, 0, size.width, size.height),
+          const Radius.circular(4),
+        ),
+        bgPaint,
+      );
+      return;
+    }
+
+    double currentX = 0;
+    double barWidthRatio = (total / maxTotal).clamp(0.05, 1.0);
+    double availableWidth = size.width * barWidthRatio;
+
+    countsByLevel.forEach((level, count) {
+      if (count > 0) {
+        double segmentWidth = (count / total) * availableWidth;
+        final paint = Paint()
+          ..color = CefrBarChart.cefrColors[level] ?? const Color(0xFF6750A4);
+
+        canvas.drawRect(
+          Rect.fromLTWH(currentX, 0, segmentWidth, size.height),
+          paint,
+        );
+        currentX += segmentWidth;
+      }
+    });
+  }
+
+  @override
+  bool shouldRepaint(covariant CefrBarPainter oldDelegate) {
+    return oldDelegate.countsByLevel != countsByLevel ||
+        oldDelegate.maxTotal != maxTotal;
   }
 }

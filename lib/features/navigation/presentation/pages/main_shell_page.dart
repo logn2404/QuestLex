@@ -5,14 +5,33 @@ import '../../../home/presentation/home_page.dart';
 import '../../../inventory_vocab/presentation/inventory_page.dart';
 import '../../../learning_vocab/presentation/learning_page.dart';
 import '../../../streak/presentation/streak_page.dart';
-// 🎯 Import StudyPage từ feature study mới
 import '../../../study/presentation/pages/study_page.dart';
 
 import '../../domain/app_screen.dart';
 import '../controllers/navigation_controller.dart';
+import '../../../../services/screen_capture_service.dart';
 
-class MainShellPage extends StatelessWidget {
+class MainShellPage extends StatefulWidget {
   const MainShellPage({super.key});
+
+  @override
+  State<MainShellPage> createState() => _MainShellPageState();
+}
+
+class _MainShellPageState extends State<MainShellPage> {
+  final ScreenCaptureService _captureService = ScreenCaptureService();
+
+  @override
+  void initState() {
+    super.initState();
+    _captureService.startShortcutListener();
+  }
+
+  @override
+  void dispose() {
+    _captureService.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +72,7 @@ class MainShellPage extends StatelessWidget {
                         height: 40,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08), // Nền mờ chuẩn Dark UI
+                          color: Colors.white.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: Colors.white.withValues(alpha: 0.12),
@@ -87,11 +106,11 @@ class MainShellPage extends StatelessWidget {
         return const LearningPage(key: ValueKey(AppScreen.learning));
 
       case AppScreen.study:
-        // 🎯 ĐÃ BỔ SUNG TRANG RÈN LUYỆN STUDY PAGE
         return const StudyPage(key: ValueKey(AppScreen.study));
 
       case AppScreen.streak:
         return const StreakPage(key: ValueKey(AppScreen.streak));
+
     }
   }
 }

@@ -1,16 +1,16 @@
-import 'dart:async'; // Import dart:async để dùng Timer
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../domain/models/daily_cefr_count.dart';
 import '../domain/models/learning_vocab_item.dart';
 import '../domain/repositories/learning_vocab_repository.dart';
+import '../domain/utils/trend_analyzer.dart';
 
 class LearningVocabController extends ChangeNotifier {
   final LearningVocabRepository _repository;
 
   List<LearningVocabItem> _allVocab = [];
+  List<LearningVocabItem> _analyticsVocab = [];
   List<LearningVocabItem> _filteredVocab = [];
-  List<DailyCEFRCount> _dailyStats = [];
-  List<DailyCEFRCount> _monthlyStats = [];
 
   final Set<String> _selectedItemIds = {};
   bool _isSelectionMode = false;
@@ -18,32 +18,67 @@ class LearningVocabController extends ChangeNotifier {
   String _searchQuery = '';
   bool _isLoading = false;
 
-  // Khai báo Timer cho Debounce
   Timer? _debounceTimer;
+  Timer? _autoRefreshTimer;
+  bool _isDisposed = false;
 
   List<LearningVocabItem> get vocabList => _filteredVocab;
-  List<DailyCEFRCount> get dailyStats => _dailyStats;
-  List<DailyCEFRCount> get monthlyStats => _monthlyStats;
   Set<String> get selectedItemIds => _selectedItemIds;
   bool get isSelectionMode => _isSelectionMode;
   double get leftPanelWidth => _leftPanelWidth;
   bool get isLoading => _isLoading;
 
-  LearningVocabController({required this._repository}) {
-    loadData();
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
   }
 
-  Future<void> loadData() async {
-    _isLoading = true;
-    notifyListeners();
+  // 🎯 Thống kê Analytics tính toán qua TrendAnalyzer
+    List<DailyCEFRCount> get dailyStats =>
+      TrendAnalyzer.analyzeDailyStats(_analyticsVocab);
+    List<DailyCEFRCount> get monthlyStats =>
+      TrendAnalyzer.analyzeMonthlyStats(_analyticsVocab);
 
-    _dailyStats = await _repository.getDailyStats();
-    _monthlyStats = await _repository.getMonthlyStats();
-    _allVocab = await _repository.getLearningVocab();
+  LearningVocabController({required this._repository}) {
+    _startAutoRefresh();
+  }
 
-    _applyFilter();
-    _isLoading = false;
-    notifyListeners();
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      loadData(isSilent: true);
+    });
+  }
+
+  Future<void> loadData({bool isSilent = false}) async {
+    if (_isDisposed) return;
+
+    if (!isSilent) {
+      _isLoading = true;
+      notifyListeners();
+    }
+
+    try {
+      final results = await Future.wait([
+        _repository.getLearningVocab(),
+        _repository.getMasteredVocabForAnalytics(),
+      ]);
+      if (_isDisposed) return;
+      final learningData = results[0];
+      final masteredData = results[1];
+      _allVocab = learningData;
+      _analyticsVocab = _mergeAnalyticsData(learningData, masteredData);
+      _applyFilter();
+    } catch (e) {
+      if (_isDisposed) return;
+      if (!isSilent) _isLoading = false;
+      if (!_isDisposed) notifyListeners();
+      if (!isSilent) rethrow; // Ném lỗi cho UI bắt và hiển thị AlertDialog
+    }
+
+    if (!isSilent) _isLoading = false;
+    if (!_isDisposed) notifyListeners();
   }
 
   void updateLeftPanelWidth(double delta) {
@@ -51,7 +86,7 @@ class LearningVocabController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Bật/Tắt chế độ chọn thủ công từ nút Bấm
+  /// 🎯 1. BẬT / TẮT CHẾ ĐỘ CHỌN TỪ TỪ NÚT BẤM (TOGGLE SELECTION MODE)
   void toggleSelectionMode() {
     _isSelectionMode = !_isSelectionMode;
     if (!_isSelectionMode) {
@@ -60,38 +95,35 @@ class LearningVocabController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 🚀 CẬP NHẬT: Chọn/Bỏ chọn từ vựng với Auto-Reset & Auto-Enable UX
+  /// 🎯 2. CHỌN / BỎ CHỌN MỘT TỪ VỰNG CỤ THỂ
   void toggleSelectItem(String id) {
     if (_selectedItemIds.contains(id)) {
       _selectedItemIds.remove(id);
-
-      // 🎯 Auto reset chế độ chọn về ban đầu khi deselect từ cuối cùng
+      // Auto reset mode về false khi bỏ chọn hết
       if (_selectedItemIds.isEmpty) {
         _isSelectionMode = false;
       }
     } else {
       _selectedItemIds.add(id);
-      
-      // 🎯 Auto bật chế độ chọn khi click chọn từ đầu tiên
+      // Auto bật chế độ chọn khi bấm chọn từ đầu tiên
       _isSelectionMode = true;
     }
     notifyListeners();
   }
 
-  /// 🚀 CẬP NHẬT: Xóa toàn bộ lựa chọn & Reset mode
+  /// 🎯 3. XÓA SẠCH TẤT CẢ LỰA CHỌN
   void clearAllSelection() {
     _selectedItemIds.clear();
     _isSelectionMode = false;
     notifyListeners();
   }
 
-  /// Áp dụng Debounce 300ms cho hàm search
   void search(String query) {
-    _debounceTimer?.cancel(); // Hủy timer cũ nếu người dùng còn đang gõ
+    _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _searchQuery = query;
       _applyFilter();
-      notifyListeners(); // Chỉ rebuild UI sau khi người dùng ngừng gõ 300ms
+      notifyListeners();
     });
   }
 
@@ -107,10 +139,22 @@ class LearningVocabController extends ChangeNotifier {
     }
   }
 
-  // Hủy Timer khi Controller bị hủy để tránh leak bộ nhớ
+  List<LearningVocabItem> _mergeAnalyticsData(
+    List<LearningVocabItem> learningData,
+    List<LearningVocabItem> masteredData,
+  ) {
+    final merged = <String, LearningVocabItem>{};
+    for (final item in [...learningData, ...masteredData]) {
+      merged[item.id] = item;
+    }
+    return merged.values.toList();
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
     _debounceTimer?.cancel();
+    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 }
