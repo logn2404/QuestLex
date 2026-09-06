@@ -1,84 +1,110 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import 'package:questlex/features/study/domain/enums/study_mode.enum.dart';
-import 'package:questlex/features/study/presentation/widgets/study_header_banner.dart';
-import 'package:questlex/features/study/presentation/widgets/study_mode_toggle.dart';
-import 'package:questlex/features/study/presentation/widgets/study_task_section.dart';
+import '../../data/repositories/api_study_repositories.dart';
+import '../../domain/enums/study_mode.enum.dart';
+import '../widgets/study_header_banner.dart';
+import '../widgets/study_mode_toggle.dart';
+import '../widgets/study_task_section.dart';
+import 'study_controller.dart';
 
-class StudyPage extends StatefulWidget {
-  const StudyPage({super.key});
+class StudyPage extends StatelessWidget {
+  final List<Map<String, dynamic>> initialWords;
 
-  @override
-  State<StudyPage> createState() => _StudyPageState();
-}
-
-class _StudyPageState extends State<StudyPage> {
-  StudyMode currentMode = StudyMode.study;
-
-  // Giả lập trạng thái Giờ vàng (Golden Hour)
-  final bool isGoldenHour = true;
-  final double expMultiplier = 1.5;
+  const StudyPage({
+    super.key,
+    this.initialWords = const [],
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isStudy = currentMode == StudyMode.study;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'RÈN LUYỆN TỪ VỰNG',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
-        ),
-        centerTitle: true,
-        elevation: 2,
+    return ChangeNotifierProvider(
+      create: (_) => StudyController(
+        repository: ApiStudyRepository(),
+        initialWords: initialWords,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 1. SWITCH TOGGLE (STUDY / PRACTICE)
-            StudyModeToggle(
-              currentMode: currentMode,
-              onModeChanged: (mode) => setState(() => currentMode = mode),
+      child: Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1A1A1E),
+          title: const Text(
+            'RÈN LUYỆN TỪ VỰNG',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
             ),
+          ),
+          centerTitle: true,
+          elevation: 2,
+        ),
+        body: Consumer<StudyController>(
+          builder: (context, controller, child) {
+            final isStudy = controller.currentMode == StudyMode.study;
 
-            const SizedBox(height: 16),
-
-            // 2. BANNER GIỜ VÀNG / SINH TỒN
-            StudyHeaderBanner(
-              mode: currentMode,
-              isGoldenHour: isGoldenHour,
-              expMultiplier: expMultiplier,
-            ),
-
-            const SizedBox(height: 24),
-
-            // 3. TIÊU ĐỀ
-            Row(
-              children: [
-                Icon(
-                  isStudy ? Icons.auto_awesome : Icons.local_fire_department_rounded,
-                  color: isStudy ? Colors.amberAccent : Colors.deepOrangeAccent,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isStudy ? 'CHỌN HÌNH THỨC RÈN LUYỆN' : 'CHẾ ĐỘ SINH TỒN VÔ HẠN',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    letterSpacing: 0.5,
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. TOGGLE CHẾ ĐỘ STUDY / PRACTICE
+                  StudyModeToggle(
+                    currentMode: controller.currentMode,
+                    onModeChanged: controller.setMode,
                   ),
-                ),
-              ],
-            ),
 
-            const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-            // 4. BỘ 3 THẺ BÀI TỰ CÓ HOVER GLOW & TRANSITION MỚI
-            const StudyTaskSection(),
-          ],
+                  // 2. BANNER HIỂN THỊ THÔNG BÁO TẢI NGẦM
+                  StudyHeaderBanner(
+                    mode: controller.currentMode,
+                    isGoldenHour: controller.isGoldenHour,
+                    expMultiplier: controller.expMultiplier,
+                    wordCount: controller.wordCount,
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 3. TIÊU ĐỀ SECTION
+                  Row(
+                    children: [
+                      Icon(
+                        isStudy ? Icons.auto_awesome : Icons.local_fire_department_rounded,
+                        color: isStudy ? Colors.amberAccent : Colors.deepOrangeAccent,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isStudy ? 'CHỌN HÌNH THỨC RÈN LUYỆN' : 'CHẾ ĐỘ SINH TỒN VÔ HẠN',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // 4. DANH SÁCH 3 THẺ BÀI / GAME
+                  if (controller.isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32.0),
+                        child: CircularProgressIndicator(color: Colors.redAccent),
+                      ),
+                    )
+                  else
+                    StudyTaskSection(
+                      words: controller.studyQueue,
+                      onReview: controller.reviewWord,
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );

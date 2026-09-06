@@ -9,6 +9,7 @@ class CaptureTriggerManager {
   Timer? _autoTimer;
   int _currentClickCount = 0;
   double _accumulatedScrollDelta = 0.0;
+  bool _isScanningActive = false;
 
   CaptureTriggerManager({
     required this.triggerConfigController,
@@ -25,7 +26,8 @@ class CaptureTriggerManager {
     debugPrint('🖱️ Global Click: $_currentClickCount/${config.clickThreshold}');
 
     if (_currentClickCount >= config.clickThreshold) {
-      onTriggerCapture('Mouse Click ($_currentClickCount lần)');
+      final clickCount = _currentClickCount;
+      _fireCapture('Mouse Click ($clickCount lần)');
     }
   }
 
@@ -37,12 +39,14 @@ class CaptureTriggerManager {
     debugPrint('📜 Scroll Y Delta: ${_accumulatedScrollDelta.toStringAsFixed(0)}/${config.scrollThreshold}');
 
     if (_accumulatedScrollDelta >= config.scrollThreshold) {
-      onTriggerCapture('Mouse Scroll (${_accumulatedScrollDelta.toStringAsFixed(0)} px)');
+      final scrollDelta = _accumulatedScrollDelta;
+      _fireCapture('Mouse Scroll (${scrollDelta.toStringAsFixed(0)} px)');
     }
   }
 
   // 🛡️ RESET CHU KỲ (Hủy Timer cũ để không dồn hàng)
   void resetCycles(bool isScanningActive) {
+    _isScanningActive = isScanningActive;
     _autoTimer?.cancel();
     _autoTimer = null;
 
@@ -51,13 +55,19 @@ class CaptureTriggerManager {
 
     if (config.enableTimer && isScanningActive) {
       _autoTimer = Timer(Duration(milliseconds: config.timerIntervalMs), () {
-        onTriggerCapture('Timer (${config.timerIntervalMs}ms)');
+        _fireCapture('Timer (${config.timerIntervalMs}ms)');
       });
     }
   }
 
+  void _fireCapture(String source) {
+    resetCycles(_isScanningActive);
+    onTriggerCapture(source);
+  }
+
   // Dừng hẳn Trigger
   void stop() {
+    _isScanningActive = false;
     _autoTimer?.cancel();
     _autoTimer = null;
     _currentClickCount = 0;

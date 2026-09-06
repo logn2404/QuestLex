@@ -25,7 +25,7 @@ int _mouseProc(int nCode, int wParam, int lParam) {
             _lastClickTime = now;
 
             Future.microtask(() {
-              if (_activeHookInstance != null && _activeHookInstance!.isActive) {
+              if (_activeHookInstance == service && service.isActive && !service.isBusy) {
                 service.onClick?.call();
               }
             });
@@ -39,7 +39,7 @@ int _mouseProc(int nCode, int wParam, int lParam) {
           if (wheelDelta >= 0x8000) wheelDelta -= 0x10000;
 
           Future.microtask(() {
-            if (_activeHookInstance != null && _activeHookInstance!.isActive) {
+            if (_activeHookInstance == service && service.isActive && !service.isBusy) {
               service.onScroll?.call(wheelDelta.toDouble());
             }
           });
@@ -71,6 +71,12 @@ class Win32MouseHookService {
         GetModuleHandle(nullptr),
         0,
       );
+      if (_hMouseHook == 0) {
+        _activeHookInstance = null;
+        debugPrint('❌ [Native Win32 Hook]: Không thể kích hoạt Hook.');
+        return;
+      }
+      _lastClickTime = null;
       debugPrint('🖱️ [Native Win32 Hook]: Đã kích hoạt Hook thành công.');
     } catch (e) {
       debugPrint('❌ [Mouse Hook Error]: $e');
@@ -83,6 +89,7 @@ class Win32MouseHookService {
       UnhookWindowsHookEx(_hMouseHook);
       _hMouseHook = 0;
       _activeHookInstance = null;
+      _lastClickTime = null;
       debugPrint('🛑 [Native Win32 Hook]: Đã gỡ bỏ Hook.');
     } catch (e) {
       debugPrint('❌ [Mouse Hook Stop Error]: $e');

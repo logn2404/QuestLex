@@ -34,11 +34,11 @@ class TriggerConfigController extends ChangeNotifier {
     double? scrollThreshold,
   }) {
     if (enableTimer != null) config.enableTimer = enableTimer;
-    if (timerIntervalMs != null) config.timerIntervalMs = timerIntervalMs;
+    if (timerIntervalMs != null) config.timerIntervalMs = timerIntervalMs.clamp(100, 86400000);
     if (enableClick != null) config.enableClick = enableClick;
-    if (clickThreshold != null) config.clickThreshold = clickThreshold;
+    if (clickThreshold != null) config.clickThreshold = clickThreshold.clamp(1, 1000000);
     if (enableScroll != null) config.enableScroll = enableScroll;
-    if (scrollThreshold != null) config.scrollThreshold = scrollThreshold;
+    if (scrollThreshold != null) config.scrollThreshold = scrollThreshold.clamp(1, 1000000).toDouble();
 
     notifyListeners();
   }

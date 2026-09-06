@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../data/fake_streak_repository.dart';
+import '../../data/streak_repository.dart';
 
 class ExpCircle extends StatelessWidget {
   final StreakData data;

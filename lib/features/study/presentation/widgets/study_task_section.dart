@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
 
-import 'package:questlex/features/study/presentation/widgets/study_mode_card.dart';
-import 'package:questlex/features/study/presentation/widgets/transitions/flashcard_transition.dart';
-import 'package:questlex/features/study/presentation/widgets/transitions/matching_transition.dart';
-import 'package:questlex/features/study/presentation/widgets/transitions/word_fill_transition.dart';
+import '../pages/matching_card_page.dart';
+import '../pages/word_typing_page.dart';
+import 'flashcard/flashcard_session_view.dart';
+import 'study_mode_card.dart';
+import 'transitions/flashcard_transition.dart';
+import 'transitions/matching_transition.dart';
+import 'transitions/word_fill_transition.dart';
 
 class StudyTaskSection extends StatefulWidget {
-  const StudyTaskSection({super.key});
+  final List<Map<String, dynamic>> words;
+  final Function(String word, int quality) onReview;
+
+  const StudyTaskSection({
+    super.key,
+    required this.words,
+    required this.onReview,
+  });
 
   @override
   State<StudyTaskSection> createState() => _StudyTaskSectionState();
@@ -15,7 +25,7 @@ class StudyTaskSection extends StatefulWidget {
 class _StudyTaskSectionState extends State<StudyTaskSection> {
   OverlayEntry? _overlayEntry;
 
-  /// Kích hoạt Overlay tràn FULL 100% toàn bộ màn hình hệ thống
+  /// Kích hoạt Overlay tràn màn hình bằng Overlay.of(context) gióng theo Flashcard
   void _showFullScreenTransition(
     Widget Function(VoidCallback onComplete) builder,
     VoidCallback onTargetNavigation,
@@ -27,13 +37,51 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
       }),
     );
 
-    final rootOverlay = Overlay.of(context, rootOverlay: true);
-    rootOverlay.insert(_overlayEntry!);
+    // 🎯 Lấy Overlay chuẩn tương tự Flashcard, không dùng rootNavigator gây lỗi
+    final overlayState = Overlay.of(context);
+    overlayState.insert(_overlayEntry!);
   }
 
   void _removeOverlay() {
     _overlayEntry?.remove();
     _overlayEntry = null;
+  }
+
+  void _handleWordFillSelection(
+    BuildContext context,
+    List<Map<String, dynamic>> words,
+  ) {
+    late OverlayEntry overlayEntry;
+
+    overlayEntry = OverlayEntry(
+      builder: (context) => WordFillTransitionOverlay(
+        onComplete: () {
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              opaque: false,
+              pageBuilder: (context, animation, secondaryAnimation) {
+                return WordTypingPage(
+                  words: words,
+                  onReview: widget.onReview,
+                );
+              },
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+            ),
+          );
+
+          Future.delayed(const Duration(milliseconds: 600), () {
+            if (overlayEntry.mounted) {
+              overlayEntry.remove();
+            }
+          });
+        },
+      ),
+    );
+
+    Overlay.of(context, rootOverlay: true).insert(overlayEntry);
   }
 
   @override
@@ -48,7 +96,6 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
           crossAxisCount: isDesktop ? 3 : 1,
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
-          // 🎯 Đã tăng tỉ lệ Aspect Ratio lên (1.35 cho desktop) để card ngắn & gọn gàng hơn
           childAspectRatio: isDesktop ? 1.35 : 1.8,
           children: [
             // 1. FLASH CARD
@@ -56,7 +103,7 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               title: 'FLASH CARD',
               description: 'Lật thẻ tương tác xem từ vựng, âm thanh & nghĩa',
               icon: const Icon(
-                Icons.style_rounded,
+                Icons.view_carousel_rounded,
                 color: Color(0xFFE53935),
                 size: 32,
               ),
@@ -65,7 +112,15 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
                 (onComplete) =>
                     FlashcardTransitionOverlay(onComplete: onComplete),
                 () {
-                  // TODO: Navigator sang FlashcardPage
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FlashcardSessionView(
+                        words: widget.words,
+                        onReview: widget.onReview,
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
@@ -76,20 +131,29 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
               description: 'Nối từ nhanh với Synonyms & Definition',
               icon: const Icon(
                 Icons.extension_rounded,
-                color: Color(0xFF3B82F6),
+                color: Color(0xFF00E5FF),
                 size: 32,
               ),
-              themeColor: const Color(0xFF3B82F6),
+              themeColor: const Color(0xFF00E5FF),
               onDoubleClick: () => _showFullScreenTransition(
                 (onComplete) =>
                     MatchingTransitionOverlay(onComplete: onComplete),
                 () {
-                  // TODO: Navigator sang MatchingCardPage
+                  // 🎯 Đã cập nhật điều hướng thật sang MatchingCardPage
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MatchingCardPage(
+                        words: widget.words,
+                        onReview: widget.onReview,
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
 
-            // 3. TYPING WORD (Đã đổi tên & cập nhật title mới)
+            // 3. TYPING WORD
             StudyModeCard(
               title: 'TYPING WORD',
               description: 'Gõ lại chính xác từ vựng theo định nghĩa',
@@ -99,13 +163,8 @@ class _StudyTaskSectionState extends State<StudyTaskSection> {
                 size: 32,
               ),
               themeColor: const Color(0xFF10B981),
-              onDoubleClick: () => _showFullScreenTransition(
-                (onComplete) =>
-                    WordFillTransitionOverlay(onComplete: onComplete),
-                () {
-                  // TODO: Navigator sang TypingWordPage
-                },
-              ),
+              onDoubleClick: () =>
+                  _handleWordFillSelection(context, widget.words),
             ),
           ],
         );

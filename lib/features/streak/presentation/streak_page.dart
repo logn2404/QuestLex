@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../data/fake_streak_repository.dart';
+import '../data/api_streak_repository.dart';
 import 'streak_controller.dart';
 
 import 'widgets/exp_circle.dart';
 import 'widgets/fast_switch_card.dart';
 import 'widgets/milestone_bar.dart';
-import 'widgets/mode_switcher.dart';
 import 'widgets/stage_content.dart';
 import 'widgets/utility.dart';
 
@@ -17,7 +16,7 @@ class StreakPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => StreakController(repository: FakeStreakRepository()),
+      create: (_) => StreakController(repository: ApiStreakRepository()),
       child: Scaffold(
         backgroundColor: const Color(0xFF121212),
         body: SafeArea(
@@ -81,24 +80,16 @@ class StreakPage extends StatelessWidget {
 
                           // ---------------- CỘT PHẢI (RIGHT PANEL) ----------------
                           Expanded(
-                            child: Column(
-                              children: [
-                                ModeSwitcher(controller: controller),
-                                const SizedBox(height: 12),
-                                Expanded(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF1E1E1E),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.08),
-                                      ),
-                                    ),
-                                    padding: const EdgeInsets.all(16),
-                                    child: StageContent(controller: controller),
-                                  ),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E1E1E),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.08),
                                 ),
-                              ],
+                              ),
+                              padding: const EdgeInsets.all(16),
+                              child: StageContent(controller: controller),
                             ),
                           ),
                         ],

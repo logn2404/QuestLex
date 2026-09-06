@@ -3,6 +3,7 @@ import '../models/learning_vocab_item.dart';
 
 abstract class LearningVocabRepository {
   Future<List<LearningVocabItem>> getLearningVocab();
+  Future<List<LearningVocabItem>> getMasteredVocabForAnalytics();
   Future<List<DailyCEFRCount>> getDailyStats();
   Future<List<DailyCEFRCount>> getMonthlyStats();
 }

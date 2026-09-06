@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../../domain/models/learning_vocab_item.dart';
 import 'search_bar.dart';
 import 'word_card.dart';
+import 'word_detail_sheet.dart';
 
 class WordQueue extends StatelessWidget {
   final List<LearningVocabItem> vocabList;
@@ -51,7 +53,10 @@ class WordQueue extends StatelessWidget {
                   item: item,
                   isSelectionMode: isSelectionMode,
                   isSelected: isSelected,
-                  onTap: isSelectionMode ? () => onItemToggle?.call(item.id) : null,
+                  onTap: isSelectionMode
+                      ? () => onItemToggle?.call(item.id)
+                      : () => showWordDetailSheet(context, item),
+                  onDoubleTap: () => showWordDetailSheet(context, item),
                 );
               },
             ),

@@ -17,7 +17,7 @@ import 'package:questlex/screens/widgets/scan_timer_card.dart';
 import 'package:questlex/screens/widgets/trigger_settings_bottom_sheet.dart';
 import 'package:questlex/services/game_timer_service.dart';
 
-// ⚔️ Import CustomIcon (Đảm bảo đúng đường dẫn file custom_icon.dart của bạn)
+// ⚔️ Import CustomIcon đặc biệt
 import 'package:questlex/custom_icon.dart';
 
 class HomePage extends StatefulWidget {
@@ -148,12 +148,12 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
 
       if (confirmed) {
-        _controller.toggleScanning(true);
+        await _controller.toggleScanning(true);
       } else {
-        _controller.toggleScanning(false);
+        await _controller.toggleScanning(false);
       }
     } else {
-      _controller.toggleScanning(false);
+      await _controller.toggleScanning(false);
     }
   }
 
@@ -173,7 +173,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final stats = _controller.stats;
 
-    if (stats == null || _controller.isLoading) {
+    if (stats == null) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('QuestLex Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -270,20 +270,31 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
 
+                    // 3. BẮT ĐẦU HỌC (HIỂN THỊ THỜI GIAN ĐẾM NGƯỢC GIỜ VÀNG)
                     HomeDashboardActionCard(
-                        title: 'BẮT ĐẦU HỌC',
-                        icon: Icons.style,
-                        customIcon: CustomIcon.swordShield(size: 32),
-                        onTap: () {
-                          // 🎯 Sửa chỗ này: Navigate sang AppScreen.study
-                          context.read<NavigationController>().navigateTo(AppScreen.study);
-                        },
-                        subContent: Text(
-                          '${stats.pendingVocab} từ đang chờ',
-                          style: const TextStyle(color: Colors.grey, fontSize: 13),
-                          textAlign: TextAlign.center,
-                        ),
+                      title: 'BẮT ĐẦU HỌC',
+                      icon: Icons.style,
+                      customIcon: CustomIcon.swordShield(size: 32),
+                      onTap: () {
+                        context.read<NavigationController>().navigateTo(AppScreen.study);
+                      },
+                      subContent: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _controller.goldenHourCountdown,
+                            style: TextStyle(
+                              color: _controller.goldenHourCountdown.contains('🔥')
+                                  ? const Color(0xFFFFB74D)
+                                  : Colors.amberAccent.shade100,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
+                    ),
 
                     // 4. STREAK (THEME CAM LỬA)
                     HomeDashboardActionCard(

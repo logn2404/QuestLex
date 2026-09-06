@@ -27,7 +27,6 @@ class _WordFillTransitionOverlayState extends State<WordFillTransitionOverlay>
   int _visibleCount = 0;
   late Timer _timer;
 
-  // Animation controller xử lý hiệu ứng tách đôi 2 cánh cửa biến mất (Split Screen)
   late AnimationController _splitController;
   late Animation<double> _splitAnimation;
 
@@ -37,21 +36,21 @@ class _WordFillTransitionOverlayState extends State<WordFillTransitionOverlay>
 
     _splitController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 650),
     );
 
     _splitAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _splitController, curve: Curves.easeInOutCubic),
     );
 
-    // 1. Tạo 60 dải chữ (trong đó một số dải chữ cuối sẽ có cờ isStickyToSide = true để đọng lại)
+    // Tạo 60 dải chữ (15 dải cuối sẽ đọng lại ở 2 biên)
     for (int i = 0; i < 60; i++) {
       final StringBuffer sb = StringBuffer();
       for (int j = 0; j < 10; j++) {
         sb.write('${_vocabWords[_random.nextInt(_vocabWords.length)]}  •  ');
       }
 
-      final isSticky = i >= 45; // 15 dải chữ cuối sẽ đọng lại ở 2 biên
+      final isSticky = i >= 45;
       _ribbonItems.add(
         _RibbonItem(
           text: sb.toString(),
@@ -63,25 +62,24 @@ class _WordFillTransitionOverlayState extends State<WordFillTransitionOverlay>
           textColor: _random.nextBool()
               ? const Color(0xFF10B981)
               : const Color(0xFF34D399),
-          durationMs: isSticky ? 600 : _random.nextInt(200) + 300,
+          durationMs: isSticky ? 500 : _random.nextInt(200) + 250,
           isStickyToSide: isSticky,
         ),
       );
     }
 
-    // 2. Kích hoạt bão chữ
-    _timer = Timer.periodic(const Duration(milliseconds: 12), (timer) {
+    // Kích hoạt bão chữ dồn dập
+    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
       if (_visibleCount < _ribbonItems.length) {
         setState(() => _visibleCount++);
       } else {
         _timer.cancel();
 
-        // 3. Chờ 250ms cho các chữ đọng lại ở biên, sau đó kích hoạt hiệu ứng Split tách đôi màn hình
-        Future.delayed(const Duration(milliseconds: 250), () {
+        // 🎯 Kích hoạt Split Curtain: Bắn callback dựng UI bên dưới NGAY LẬP TỨC khi rèm bắt đầu tách
+        Future.delayed(const Duration(milliseconds: 180), () {
           if (mounted) {
-            _splitController.forward().then((_) {
-              widget.onComplete();
-            });
+            widget.onComplete(); // Bật WordTypingPage ngay bên dưới rèm trượt
+            _splitController.forward();
           }
         });
       }
@@ -103,7 +101,6 @@ class _WordFillTransitionOverlayState extends State<WordFillTransitionOverlay>
     return AnimatedBuilder(
       animation: _splitController,
       builder: (context, child) {
-        // Tọa độ trượt ra 2 bên của 2 nửa màn hình (0 -> halfWidth)
         final slideOffset = _splitAnimation.value * halfWidth;
 
         return Material(
@@ -149,32 +146,25 @@ class _WordFillTransitionOverlayState extends State<WordFillTransitionOverlay>
     );
   }
 
-  /// Render danh sách chữ cho từng nửa màn hình
   List<Widget> _buildHalfScreenRibbons(Size screenSize, {required bool isLeftHalf}) {
     final List<Widget> widgets = [];
-
     for (int i = 0; i < _visibleCount; i++) {
       final item = _ribbonItems[i];
-      final widget = _buildAnimatedTextLine(item, screenSize, isLeftHalf: isLeftHalf);
-      widgets.add(widget);
+      widgets.add(_buildAnimatedTextLine(item, screenSize, isLeftHalf: isLeftHalf));
     }
-
     return widgets;
   }
 
   Widget _buildAnimatedTextLine(_RibbonItem item, Size screenSize, {required bool isLeftHalf}) {
-    // Điều chỉnh vị trí bắt đầu & kết thúc dựa vào việc có phải hàng chữ đọng lại ở biên hay không
     if (item.isHorizontal) {
       final topPos = item.topRatio * (screenSize.height - 30);
       double startX = item.isForward ? -screenSize.width : screenSize.width;
       double endX = item.isForward ? screenSize.width : -screenSize.width;
 
       if (item.isStickyToSide) {
-        // Dải chữ đọng lại ở 2 mép
         endX = isLeftHalf ? -screenSize.width * 0.25 : screenSize.width * 0.25;
       }
 
-      // Ép bù tọa độ cho nửa bên phải vì Origin của nó tính từ Right
       final xOffsetCorrection = isLeftHalf ? 0.0 : -screenSize.width / 2;
 
       return Positioned(
@@ -215,7 +205,6 @@ class _WordFillTransitionOverlayState extends State<WordFillTransitionOverlay>
         ),
       );
     } else {
-      // ↕ CHẠY DỌC
       final leftPos = item.leftRatio * (screenSize.width - 30);
       final double startY = item.isForward ? -screenSize.height : screenSize.height;
       final double endY = item.isForward ? screenSize.height : -screenSize.height;
