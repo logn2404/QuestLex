@@ -103,6 +103,7 @@ class VocabularyExtractor:
         self.embedding_model = None 
         self.dict_engine = None 
         self.nltk_example_engine = None 
+        self.spell = None
         self._dictionary_cache: Dict[str, Dict[str, Any]] = {} 
         self._doc_cache: Dict[str, Any] = {} 
         self._cache_lock = threading.Lock()
@@ -120,12 +121,18 @@ class VocabularyExtractor:
             from spacy.matcher import Matcher
             import nltk
             import torch
+            
+            try:
+                from spellchecker import SpellChecker
+                self.spell = SpellChecker()
+            except ImportError:
+                self.spell = None
 
             try:
                 from offline_dictionary import LargeOfflineDictionary
             except ImportError:
                 try:
-                    from offline_dictionary_2 import LargeOfflineDictionary
+                    from offline_dictionary import LargeOfflineDictionary
                 except ImportError:
                     LargeOfflineDictionary = None
 
@@ -212,6 +219,29 @@ class VocabularyExtractor:
             except Exception:
                 pass
         return {}
+
+    def _is_valid_english_word(self, word: str) -> bool:
+        word = word.lower()
+        
+        # 1. Rule out words without vowels (y counts as a vowel)
+        if not re.search(r'[aeiouy]', word):
+            return False
+            
+        # 2. Rule out repeated gibberish (e.g., "aaa", "bbb")
+        if re.search(r'(.)\1\1', word):
+            return False
+            
+        # 3. Use wordfreq to drop words that mathematically do not exist in usage
+        if self.wordfreq is not None and "_" not in word:
+            if self.wordfreq(word, "en") == 0.0:
+                return False
+
+        # 4. Use pyspellchecker as a strict local dictionary gatekeeper
+        if self.spell is not None and "_" not in word:
+            if not self.spell.known([word]):
+                return False
+                
+        return True
 
     @classmethod
     @lru_cache(maxsize=16384)
@@ -442,6 +472,8 @@ class VocabularyExtractor:
         target_pos = {"NOUN", "VERB", "ADJ", "ADV"} 
 
         def passes_candidate_filters(lemma: str, pos: str) -> bool:
+            if not self._is_valid_english_word(lemma):
+                return False
             if self._is_non_learning_word(lemma): 
                 return False
             return self._has_dictionary_meaning(lemma, pos=pos) 
@@ -476,6 +508,11 @@ class VocabularyExtractor:
                 if any(t.is_stop for t in span): continue 
 
                 phrase = "_".join(t.lemma_.lower() for t in span) 
+                
+                # Check each word in a phrase against the gibberish filter
+                if any(not self._is_valid_english_word(w) for w in phrase.split("_")):
+                    continue
+
                 if phrase in seen_lemmas or self._is_non_learning_word(phrase): continue 
                 if not self._has_dictionary_meaning(phrase, pos="NOUN"): continue 
 
